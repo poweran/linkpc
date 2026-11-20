@@ -102,9 +102,17 @@ class VpnService {
     _statusController.add(s);
   }
 
+  static final List<String> _logHistory = [];
+  static List<String> get logHistory => List.unmodifiable(_logHistory);
+
   static void _log(String message) {
     final timestamp = DateTime.now().toIso8601String().substring(11, 19);
-    _logsController.add('[$timestamp] $message');
+    final entry = '[$timestamp] $message';
+    _logHistory.add(entry);
+    if (_logHistory.length > 500) _logHistory.removeAt(0);
+    _logsController.add(entry);
+    // ignore: avoid_print
+    print(entry);
   }
 
   /// Injects inbounds (mixed proxy 2080 + tun) and routing rules into sing-box config
@@ -113,14 +121,13 @@ class VpnService {
       final map = json.decode(rawConfig) as Map<String, dynamic>;
 
       // Ensure mixed inbound on 127.0.0.1:2080 is always active for system proxy routing
+      // Modern sing-box 1.11+: legacy inbound sniff fields are replaced by route rules
       final inbounds = <Map<String, dynamic>>[
         {
           "type": "mixed",
           "tag": "mixed-in",
           "listen": "127.0.0.1",
           "listen_port": 2080,
-          "sniff": true,
-          "sniff_override_destination": false
         }
       ];
 
@@ -130,32 +137,36 @@ class VpnService {
           "type": "tun",
           "tag": "tun-in",
           "interface_name": "linkpc0",
-          "inet4_address": "172.19.0.1/30",
+          "address": ["172.19.0.1/30"],
           "auto_route": true,
           "strict_route": true,
           "stack": "system",
-          "sniff": true,
-          "sniff_override_destination": false
         });
       }
 
       map['inbounds'] = inbounds;
 
+      final route = (map['route'] as Map<String, dynamic>?) ?? {};
+      final rules = (route['rules'] as List<dynamic>?) ?? [];
+
+      // Ensure action: sniff is enabled in routing rules
+      bool hasSniff = rules.any((r) => r is Map && r['action'] == 'sniff');
+      if (!hasSniff) {
+        rules.insert(0, {"action": "sniff"});
+      }
+
       // Smart Mode: Direct routing for Russian domains
       if (routingMode == AppConstants.routeModeSmart) {
-        final route = (map['route'] as Map<String, dynamic>?) ?? {};
-        final rules = (route['rules'] as List<dynamic>?) ?? [];
-
         bool hasRuRule = rules.any((r) => r is Map && r['outbound'] == 'direct');
         if (!hasRuRule) {
-          rules.insert(0, {
+          rules.insert(1, {
             "domain_suffix": [".ru", ".su", ".рф", ".xn--p1ai"],
             "outbound": "direct"
           });
         }
-        route['rules'] = rules;
-        map['route'] = route;
       }
+      route['rules'] = rules;
+      map['route'] = route;
 
       return const JsonEncoder.withIndent('  ').convert(map);
     } catch (e) {
@@ -171,6 +182,11 @@ class VpnService {
     final appDir = File(Platform.resolvedExecutable).parent.path;
     final adjacent = File('$appDir${Platform.pathSeparator}$exeName');
     if (adjacent.existsSync()) {
+      if (!Platform.isWindows) {
+        try {
+          await Process.run('chmod', ['+x', adjacent.path]);
+        } catch (_) {}
+      }
       return adjacent.path;
     }
 
@@ -178,15 +194,29 @@ class VpnService {
     final appSupportDir = await getApplicationSupportDirectory();
     final localBinary = File('${appSupportDir.path}${Platform.pathSeparator}$exeName');
     if (localBinary.existsSync()) {
+      if (!Platform.isWindows) {
+        try {
+          await Process.run('chmod', ['+x', localBinary.path]);
+        } catch (_) {}
+      }
       return localBinary.path;
     }
 
-    // 3. Auto-download from linkpc gateway server
+    // 3. Check system PATH locations on macOS / Linux
+    if (!Platform.isWindows) {
+      for (final sysPath in ['/opt/homebrew/bin/sing-box', '/usr/local/bin/sing-box', '/usr/bin/sing-box']) {
+        if (File(sysPath).existsSync()) {
+          return sysPath;
+        }
+      }
+    }
+
+    // 4. Auto-download from linkpc gateway server
     _log('Загрузка ядра sing-box с сервера linkpc...');
     final downloadUrl = Platform.isWindows
         ? 'https://vless.linkpc.net/downloads/sing-box.exe'
         : (Platform.isMacOS
-            ? 'https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-darwin-universal.zip'
+            ? 'https://vless.linkpc.net/downloads/sing-box-darwin'
             : 'https://vless.linkpc.net/downloads/sing-box');
 
     try {
@@ -199,6 +229,8 @@ class VpnService {
         }
         _log('Ядро sing-box успешно загружено и подготовлено.');
         return localBinary.path;
+      } else {
+        _log('Сервер вернул статус ${res.statusCode} при загрузке ядра');
       }
     } catch (e) {
       _log('Не удалось автоматически загрузить ядро: $e');
@@ -278,15 +310,25 @@ class VpnService {
         _log('[core] $line');
       });
 
+      bool processExited = false;
+      int? earlyExitCode;
       _desktopProcess!.exitCode.then((code) {
+        processExited = true;
+        earlyExitCode = code;
         _log('Ядро sing-box завершило работу (код $code)');
         if (_currentStatus == VpnStatus.connected) {
           stopTunnel();
         }
       });
 
-      // Allow 600ms for sing-box to bind 127.0.0.1:2080
-      await Future.delayed(const Duration(milliseconds: 600));
+      // Allow 700ms for sing-box to bind 127.0.0.1:2080
+      await Future.delayed(const Duration(milliseconds: 700));
+
+      if (processExited) {
+        _log('Ошибка: ядро sing-box завершилось с кодом $earlyExitCode. Подключение прервано.');
+        _setStatus(VpnStatus.error);
+        return;
+      }
 
       if (Platform.isWindows) {
         _log('Применение системного прокси Windows (127.0.0.1:2080)...');
@@ -386,22 +428,48 @@ class VpnService {
   static Future<void> _setMacOsProxy({required bool enabled, String host = '127.0.0.1', int port = 2080}) async {
     try {
       final netRes = await Process.run('networksetup', ['-listnetworkserviceorder']);
-      final out = netRes.stdout.toString();
-      String service = 'Wi-Fi';
-      if (!out.contains('Wi-Fi') && out.contains('Ethernet')) service = 'Ethernet';
+      final services = _parseMacNetworkServices(netRes.stdout.toString());
 
-      if (enabled) {
-        await Process.run('networksetup', ['-setwebproxy', service, host, port.toString()]);
-        await Process.run('networksetup', ['-setsecurewebproxy', service, host, port.toString()]);
-        await Process.run('networksetup', ['-setsocksfirewallproxy', service, host, port.toString()]);
-      } else {
-        await Process.run('networksetup', ['-setwebproxystate', service, 'off']);
-        await Process.run('networksetup', ['-setsecurewebproxystate', service, 'off']);
-        await Process.run('networksetup', ['-setsocksfirewallproxystate', service, 'off']);
+      for (final service in services) {
+        if (enabled) {
+          _log('Настройка системного прокси macOS для $service ($host:$port)...');
+          await Process.run('networksetup', ['-setwebproxy', service, host, port.toString()]);
+          await Process.run('networksetup', ['-setsecurewebproxy', service, host, port.toString()]);
+          await Process.run('networksetup', ['-setsocksfirewallproxy', service, host, port.toString()]);
+        } else {
+          _log('Отключение системного прокси macOS для $service...');
+          await Process.run('networksetup', ['-setwebproxystate', service, 'off']);
+          await Process.run('networksetup', ['-setsecurewebproxystate', service, 'off']);
+          await Process.run('networksetup', ['-setsocksfirewallproxystate', service, 'off']);
+        }
       }
     } catch (e) {
       _log('Ошибка изменения настроек прокси macOS: $e');
     }
+  }
+
+  static List<String> _parseMacNetworkServices(String output) {
+    final services = <String>[];
+    final lines = output.split('\n');
+    final regex = RegExp(r'^\(\d+\)\s+(.+?)(?:\s+\(Hardware Port:.*)?$');
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (trimmed.startsWith('*')) continue;
+      final match = regex.firstMatch(trimmed);
+      if (match != null) {
+        final name = match.group(1)?.trim();
+        if (name != null && name.isNotEmpty && !services.contains(name)) {
+          services.add(name);
+        }
+      }
+    }
+
+    final physical = services.where((s) {
+      final l = s.toLowerCase();
+      return l.contains('wi-fi') || l.contains('ethernet') || l.contains('lan') || l.contains('usb');
+    }).toList();
+
+    return physical.isNotEmpty ? physical : (services.isNotEmpty ? services : ['Wi-Fi', 'Ethernet']);
   }
 
   static void _startStatsSimulation() {

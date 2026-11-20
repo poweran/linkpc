@@ -21,6 +21,7 @@ class _LogsScreenState extends State<LogsScreen> {
     super.initState();
     _logs.add('--- Консоль диагностики linkpc [v1.0.0] ---');
     _logs.add('--- Ядро: sing-box (libbox), XHTTP Transport ---');
+    _logs.addAll(VpnService.logHistory);
 
     _logSub = VpnService.logsStream.listen((line) {
       if (mounted) {

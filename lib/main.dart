@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:app_links/app_links.dart';
 import 'app.dart';
@@ -26,6 +27,27 @@ void main() async {
   // Initialize persistence & VPN service
   await StorageService.init();
   VpnService.init();
+
+  // Ensure system proxy is reverted when application exits
+  if (!Platform.isWindows && !Platform.isAndroid && !Platform.isIOS) {
+    try {
+      ProcessSignal.sigint.watch().listen((_) async {
+        await VpnService.stopTunnel();
+        exit(0);
+      });
+      ProcessSignal.sigterm.watch().listen((_) async {
+        await VpnService.stopTunnel();
+        exit(0);
+      });
+    } catch (_) {}
+  }
+
+  AppLifecycleListener(
+    onExitRequested: () async {
+      await VpnService.stopTunnel();
+      return AppExitResponse.exit;
+    },
+  );
 
   // Listen to deep links: linkpc://sub?url=...
   _initDeepLinks();

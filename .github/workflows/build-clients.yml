@@ -158,8 +158,25 @@ jobs:
       - name: Build macOS (.app)
         run: |
           flutter build macos --release
+          
+          # Bundle universal sing-box core into linkpc.app
+          echo "Downloading sing-box binaries for arm64 and amd64..."
+          curl -L -o sb_arm64.tar.gz "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-darwin-arm64.tar.gz"
+          curl -L -o sb_amd64.tar.gz "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-darwin-amd64.tar.gz"
+          mkdir -p sb_arm sb_intel
+          tar -xzf sb_arm64.tar.gz -C sb_arm
+          tar -xzf sb_amd64.tar.gz -C sb_intel
+          
+          DEST="build/macos/Build/Products/Release/linkpc.app/Contents/MacOS/sing-box"
+          echo "Creating universal binary with lipo..."
+          lipo -create -output "$DEST" sb_arm/*/sing-box sb_intel/*/sing-box
+          chmod +x "$DEST"
+          
+          # Sign sing-box binary, then sign the entire bundle ad-hoc
+          codesign --force --sign - "$DEST"
+          codesign --force --deep --sign - build/macos/Build/Products/Release/linkpc.app || true
+          
           cd build/macos/Build/Products/Release
-          codesign --force --deep --sign - linkpc.app || true
           zip -r -y ../../../../../linkpc-macos.zip linkpc.app
           cd ../../../../..
 
@@ -205,7 +222,13 @@ jobs:
         run: flutter pub get
 
       - name: Build Linux
-        run: flutter build linux --release
+        run: |
+          flutter build linux --release
+          curl -L -o sb_linux.tar.gz "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64.tar.gz"
+          mkdir -p sb_l
+          tar -xzf sb_linux.tar.gz -C sb_l
+          cp sb_l/*/sing-box build/linux/x64/release/bundle/sing-box
+          chmod +x build/linux/x64/release/bundle/sing-box
 
       - name: Package Linux tar.gz
         run: |
