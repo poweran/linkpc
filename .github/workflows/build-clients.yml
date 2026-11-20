@@ -104,11 +104,10 @@ jobs:
         run: flutter pub get
 
       - name: Build macOS (.app)
-        run: flutter build macos --release
-
-      - name: Package macOS Zip
         run: |
+          flutter build macos --release
           cd build/macos/Build/Products/Release
+          codesign --force --deep --sign - linkpc.app || true
           zip -r -y ../../../../../linkpc-macos.zip linkpc.app
           cd ../../../../..
 
