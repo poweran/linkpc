@@ -136,16 +136,36 @@ class VpnService {
         inbounds.add({
           "type": "tun",
           "tag": "tun-in",
-          "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+          "address": ["172.19.0.1/30"],
           "mtu": 1500,
           "auto_route": true,
-          "strict_route": true,
+          "strict_route": false,
+          "stack": "mixed",
+          "endpoint_independent_nat": true,
         });
       }
 
       map['inbounds'] = inbounds;
 
+      // Ensure DNS servers do not have invalid detour: direct (causes fatal error in sing-box)
+      // and replace type: local with robust udp DNS (77.88.8.8) on mobile
+      final dns = (map['dns'] as Map<String, dynamic>?) ?? {};
+      final dnsServers = (dns['servers'] as List<dynamic>?) ?? [];
+      for (final srv in dnsServers) {
+        if (srv is Map) {
+          if (srv['detour'] == 'direct') {
+            srv.remove('detour');
+          }
+          if (srv['type'] == 'local') {
+            srv['type'] = 'udp';
+            srv['server'] = '77.88.8.8';
+          }
+        }
+      }
+      map['dns'] = dns;
+
       final route = (map['route'] as Map<String, dynamic>?) ?? {};
+      route['auto_detect_interface'] = true;
       final rules = (route['rules'] as List<dynamic>?) ?? [];
 
       // Ensure action: sniff is enabled in routing rules
@@ -185,7 +205,9 @@ class VpnService {
       if (routingMode == AppConstants.routeModeSmart) {
         bool hasRuRule = rules.any((r) => r is Map && r['outbound'] == 'direct');
         if (!hasRuRule) {
-          rules.insert(1, {
+          final lastDnsIdx = rules.lastIndexWhere((r) => r is Map && (r['action'] == 'hijack-dns' || r['protocol'] == 'dns' || r['port'] == 53));
+          final insertIdx = lastDnsIdx >= 0 ? lastDnsIdx + 1 : rules.length;
+          rules.insert(insertIdx, {
             "domain_suffix": [".ru", ".su", ".рф", ".xn--p1ai"],
             "outbound": "direct"
           });

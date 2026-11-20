@@ -286,15 +286,12 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         if (options.autoRoute) {
             var dnsAdded = false
             try {
-                val dnsMode = options.dnsMode?.value
-                if (dnsMode != Libbox.DNSModeDisabled) {
-                    val dnsIt = options.dnsServerAddress
-                    while (dnsIt != null && dnsIt.hasNext()) {
-                        val dns = dnsIt.next()
-                        if (!dns.isNullOrBlank()) {
-                            builder.addDnsServer(dns)
-                            dnsAdded = true
-                        }
+                val dnsIt = options.dnsServerAddress
+                while (dnsIt != null && dnsIt.hasNext()) {
+                    val dns = dnsIt.next()
+                    if (!dns.isNullOrBlank()) {
+                        builder.addDnsServer(dns)
+                        dnsAdded = true
                     }
                 }
             } catch (e: Exception) {
@@ -305,6 +302,7 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 try {
                     builder.addDnsServer("1.1.1.1")
                     builder.addDnsServer("8.8.8.8")
+                    builder.addDnsServer("77.88.8.8")
                 } catch (e: Exception) {
                     Log.w(TAG, "Fallback DNS configuration failed", e)
                 }
