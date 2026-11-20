@@ -29,7 +29,7 @@ class LinkpcApp extends StatelessWidget {
           centerTitle: false,
           iconTheme: IconThemeData(color: AppColors.textSecondary),
         ),
-        cardTheme: const CardTheme(
+        cardTheme: const CardThemeData(
           color: AppColors.surface,
           elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),

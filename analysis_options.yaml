@@ -1,5 +1,17 @@
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  errors:
+    deprecated_member_use: ignore
+    unused_field: ignore
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - windows/**
+    - macos/**
+    - linux/**
+
 linter:
   rules:
     prefer_const_constructors: true

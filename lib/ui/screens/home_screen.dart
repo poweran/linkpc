@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/models/traffic_stats.dart';
@@ -279,7 +277,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: AppColors.voidBlack,
                   border: Border.all(color: AppColors.cyberCyan.withOpacity(0.5)),
                 ),
-                child: Center(
+                child: const Center(
                   child: Text(
                     '>_',
                     style: TextStyle(

@@ -26,14 +26,13 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.x'
           channel: 'stable'
           cache: true
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build APK (Split per ABI & Universal)
+      - name: Build APKs (Split per ABI & Universal)
         run: |
           flutter build apk --release --split-per-abi
           flutter build apk --release
@@ -62,9 +61,11 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.x'
           channel: 'stable'
           cache: true
+
+      - name: Enable Windows Desktop
+        run: flutter config --enable-windows-desktop
 
       - name: Install dependencies
         run: flutter pub get
@@ -84,7 +85,7 @@ jobs:
 
   build-macos:
     name: Build macOS Application
-    runs-on: macos-14
+    runs-on: macos-13
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -92,9 +93,11 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.x'
           channel: 'stable'
           cache: true
+
+      - name: Enable macOS Desktop
+        run: flutter config --enable-macos-desktop
 
       - name: Install dependencies
         run: flutter pub get
@@ -129,9 +132,11 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.x'
           channel: 'stable'
           cache: true
+
+      - name: Enable Linux Desktop
+        run: flutter config --enable-linux-desktop
 
       - name: Install dependencies
         run: flutter pub get

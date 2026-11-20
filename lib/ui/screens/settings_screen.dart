@@ -211,7 +211,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     );
                     if (confirm == true) {
                       await StorageService.clearAll();
-                      if (mounted) Navigator.pop(context);
+                      if (context.mounted) Navigator.pop(context);
                     }
                   },
                   icon: const Icon(Icons.delete_outline_rounded, size: 16, color: AppColors.error),
