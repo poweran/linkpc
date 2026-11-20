@@ -72,10 +72,17 @@ class MainActivity: FlutterActivity() {
             action = LinkpcVpnService.ACTION_START
             putExtra(LinkpcVpnService.EXTRA_CONFIG, config)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "startForegroundService failed, falling back to startService", e)
+            try {
+                startService(intent)
+            } catch (_: Exception) {}
         }
     }
 }

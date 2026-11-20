@@ -40,8 +40,12 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         const val CHANNEL_ID = "linkpc_vpn_channel"
         const val NOTIFICATION_ID = 1001
 
+        @Volatile
         var isRunning = false
             private set
+
+        @Volatile
+        private var isLibboxSetup = false
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
@@ -70,17 +74,36 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         val action = intent?.action ?: return START_NOT_STICKY
 
         if (action == ACTION_START) {
+            // Android 8-14 requirement: call startForeground IMMEDIATELY to prevent ForegroundServiceDidNotStartInTimeException
+            ensureForegroundNotification("Подключение к шлюзу linkpc...")
+
             val config = intent.getStringExtra(EXTRA_CONFIG) ?: ""
-            startTunnel(config)
+            if (config.isBlank()) {
+                Log.e(TAG, "Empty config provided to onStartCommand, stopping")
+                stopTunnel()
+                return START_NOT_STICKY
+            }
+
+            // Start sing-box core on a worker thread to avoid blocking Android main UI thread
+            Thread({
+                startTunnel(config)
+            }, "linkpc-tunnel-start").start()
+
         } else if (action == ACTION_STOP) {
-            stopTunnel()
+            Thread({
+                stopTunnel()
+            }, "linkpc-tunnel-stop").start()
         }
 
         return START_NOT_STICKY
     }
 
+    @Synchronized
     private fun startTunnel(config: String) {
-        if (isRunning) return
+        if (isRunning) {
+            Log.i(TAG, "Tunnel already active")
+            return
+        }
 
         try {
             val baseDir = filesDir
@@ -90,14 +113,22 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val tempDir = cacheDir
             tempDir.mkdirs()
 
-            Libbox.setup(SetupOptions().apply {
-                basePath = baseDir.path
-                this.workingPath = workingDir.path
-                this.tempPath = tempDir.path
-                fixAndroidStack = true
-                logMaxLines = 3000
-                debug = false
-            })
+            if (!isLibboxSetup) {
+                try {
+                    Libbox.setup(SetupOptions().apply {
+                        basePath = baseDir.path
+                        this.workingPath = workingDir.path
+                        this.tempPath = tempDir.path
+                        fixAndroidStack = true
+                        logMaxLines = 3000
+                        debug = false
+                    })
+                    isLibboxSetup = true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Libbox.setup error (may be already initialized)", e)
+                    isLibboxSetup = true
+                }
+            }
 
             connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             try {
@@ -116,38 +147,43 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             server.startOrReloadService(config, OverrideOptions())
             isRunning = true
 
-            val notification = buildForegroundNotification("Шлюз linkpc активен • Трафик зашифрован")
-            if (Build.VERSION.SDK_INT >= 34) {
-                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
-            }
-        } catch (e: Exception) {
+            updateForegroundNotification("Шлюз linkpc активен • Трафик зашифрован")
+            Log.i(TAG, "linkpc tunnel successfully started")
+        } catch (e: Throwable) {
             Log.e(TAG, "Failed to start tunnel", e)
             stopTunnel()
         }
     }
 
+    @Synchronized
     private fun stopTunnel() {
         isRunning = false
         try {
             commandServer?.closeService()
             commandServer?.close()
-            commandServer = null
         } catch (e: Exception) {
             Log.e(TAG, "close commandServer error", e)
+        } finally {
+            commandServer = null
         }
+
         try {
             vpnInterface?.close()
-            vpnInterface = null
         } catch (e: Exception) {
             Log.e(TAG, "close vpnInterface error", e)
+        } finally {
+            vpnInterface = null
         }
+
         try {
             connectivityManager?.unregisterNetworkCallback(networkCallback)
         } catch (_: Exception) {}
 
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        try {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } catch (e: Exception) {
+            Log.w(TAG, "stopForeground error", e)
+        }
         stopSelf()
     }
 
@@ -165,7 +201,11 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
 
     override fun autoDetectInterfaceControl(fd: Int) {
-        protect(fd)
+        try {
+            protect(fd)
+        } catch (e: Exception) {
+            Log.w(TAG, "protect(fd) failed", e)
+        }
     }
 
     override fun openTun(options: TunOptions): Int {
@@ -181,7 +221,7 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             builder.setMetered(false)
         }
 
-        // Exclude the linkpc client itself from the VPN tunnel to prevent routing loops
+        // Exclude linkpc itself to prevent routing loops
         try {
             builder.addDisallowedApplication(packageName)
         } catch (_: Exception) {}
@@ -190,26 +230,57 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val excludeIt = options.excludePackage
             while (excludeIt != null && excludeIt.hasNext()) {
                 val pkg = excludeIt.next()
-                if (pkg.isNotBlank() && pkg != packageName) {
-                    builder.addDisallowedApplication(pkg)
+                if (!pkg.isNullOrBlank() && pkg != packageName) {
+                    try {
+                        builder.addDisallowedApplication(pkg)
+                    } catch (_: Exception) {}
                 }
             }
         } catch (_: Exception) {}
 
         var hasInet4 = false
-        val inet4 = options.inet4Address
-        while (inet4.hasNext()) {
-            hasInet4 = true
-            val addr = inet4.next()
-            builder.addAddress(addr.address(), addr.prefix())
+        try {
+            val inet4 = options.inet4Address
+            while (inet4 != null && inet4.hasNext()) {
+                val addr = inet4.next()
+                if (addr != null) {
+                    val ip = addr.address()
+                    val prefix = addr.prefix()
+                    if (!ip.isNullOrBlank()) {
+                        builder.addAddress(ip, prefix)
+                        hasInet4 = true
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error configuring IPv4 TUN address", e)
+        }
+
+        if (!hasInet4) {
+            try {
+                builder.addAddress("172.19.0.1", 30)
+                hasInet4 = true
+            } catch (e: Exception) {
+                Log.w(TAG, "Fallback IPv4 address failed", e)
+            }
         }
 
         var hasInet6 = false
-        val inet6 = options.inet6Address
-        while (inet6.hasNext()) {
-            hasInet6 = true
-            val addr = inet6.next()
-            builder.addAddress(addr.address(), addr.prefix())
+        try {
+            val inet6 = options.inet6Address
+            while (inet6 != null && inet6.hasNext()) {
+                val addr = inet6.next()
+                if (addr != null) {
+                    val ip = addr.address()
+                    val prefix = addr.prefix()
+                    if (!ip.isNullOrBlank()) {
+                        builder.addAddress(ip, prefix)
+                        hasInet6 = true
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error configuring IPv6 TUN address", e)
         }
 
         if (options.autoRoute) {
@@ -220,42 +291,72 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                     val dnsIt = options.dnsServerAddress
                     while (dnsIt != null && dnsIt.hasNext()) {
                         val dns = dnsIt.next()
-                        if (dns.isNotBlank()) {
+                        if (!dns.isNullOrBlank()) {
                             builder.addDnsServer(dns)
                             dnsAdded = true
                         }
                     }
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "Error configuring DNS server", e)
+            }
 
             if (!dnsAdded) {
-                // If core did not supply explicit tunnel DNS, ensure Android VPN resolver is configured
                 try {
                     builder.addDnsServer("1.1.1.1")
                     builder.addDnsServer("8.8.8.8")
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    Log.w(TAG, "Fallback DNS configuration failed", e)
+                }
             }
 
-            val r4 = options.inet4RouteAddress
             var hasR4 = false
-            while (r4.hasNext()) {
-                hasR4 = true
-                val p = r4.next()
-                builder.addRoute(p.address(), p.prefix())
-            }
-            if (!hasR4 && hasInet4) {
-                builder.addRoute("0.0.0.0", 0)
+            try {
+                val r4 = options.inet4RouteAddress
+                while (r4 != null && r4.hasNext()) {
+                    val p = r4.next()
+                    if (p != null) {
+                        val ip = p.address()
+                        val prefix = p.prefix()
+                        if (!ip.isNullOrBlank()) {
+                            builder.addRoute(ip, prefix)
+                            hasR4 = true
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error configuring IPv4 routes", e)
             }
 
-            val r6 = options.inet6RouteAddress
-            var hasR6 = false
-            while (r6.hasNext()) {
-                hasR6 = true
-                val p = r6.next()
-                builder.addRoute(p.address(), p.prefix())
+            if (!hasR4 && hasInet4) {
+                try {
+                    builder.addRoute("0.0.0.0", 0)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Default IPv4 route failed", e)
+                }
             }
-            if (!hasR6 && hasInet6) {
-                builder.addRoute("::", 0)
+
+            if (hasInet6) {
+                var hasR6 = false
+                try {
+                    val r6 = options.inet6RouteAddress
+                    while (r6 != null && r6.hasNext()) {
+                        val p = r6.next()
+                        if (p != null) {
+                            val ip = p.address()
+                            val prefix = p.prefix()
+                            if (!ip.isNullOrBlank()) {
+                                builder.addRoute(ip, prefix)
+                                hasR6 = true
+                            }
+                        }
+                    }
+                    if (!hasR6) {
+                        builder.addRoute("::", 0)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "IPv6 route configuration omitted", e)
+                }
             }
         }
 
@@ -281,7 +382,11 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val activeNet = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) cm?.activeNetwork else null
             val lp = activeNet?.let { cm?.getLinkProperties(it) }
             val ifName = lp?.interfaceName ?: ""
-            val ifIdx = try { NetworkInterface.getByName(ifName)?.index ?: -1 } catch (_: Exception) { -1 }
+            val ifIdx = try {
+                if (ifName.isNotEmpty()) NetworkInterface.getByName(ifName)?.index ?: -1 else -1
+            } catch (_: Exception) {
+                -1
+            }
             listener.updateDefaultInterface(ifName, ifIdx, false, false)
         } catch (_: Exception) {}
     }
@@ -292,13 +397,25 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val nifs = NetworkInterface.getNetworkInterfaces()
             while (nifs != null && nifs.hasMoreElements()) {
                 val nif = nifs.nextElement()
+                if (nif == null || !nif.isUp) continue
                 val boxIf = io.nekohasekai.libbox.NetworkInterface()
                 boxIf.index = nif.index
                 boxIf.name = nif.name
-                try { boxIf.mtu = nif.mtu } catch (_: Exception) {}
+                try { boxIf.mtu = if (nif.mtu > 0) nif.mtu else 1500 } catch (_: Exception) {}
                 val addrs = mutableListOf<String>()
-                for (ia in nif.interfaceAddresses) {
-                    addrs.add("${ia.address.hostAddress}/${ia.networkPrefixLength}")
+                val interfaceAddresses = try { nif.interfaceAddresses } catch (_: Exception) { null }
+                if (interfaceAddresses != null) {
+                    for (ia in interfaceAddresses) {
+                        try {
+                            val addr = ia?.address ?: continue
+                            val rawHost = addr.hostAddress ?: continue
+                            // Strip IPv6 scope ID (e.g. fe80::1%wlan0 -> fe80::1) so Go netip.ParsePrefix succeeds
+                            val host = rawHost.substringBefore('%')
+                            val prefix = ia.networkPrefixLength.toInt()
+                            val validPrefix = if (prefix > 0) prefix else (if (addr is java.net.Inet6Address) 128 else 32)
+                            addrs.add("$host/$validPrefix")
+                        } catch (_: Exception) {}
+                    }
                 }
                 boxIf.addresses = StringArray(addrs)
                 list.add(boxIf)
@@ -383,14 +500,26 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val importance = NotificationManager.IMPORTANCE_LOW
             val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
                 description = descriptionText
+                setShowBadge(false)
             }
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            notificationManager?.createNotificationChannel(channel)
         }
     }
 
+    private fun getAppIcon(): Int {
+        val icon = applicationInfo.icon
+        return if (icon != 0) icon else android.R.drawable.sym_def_app_icon
+    }
+
     private fun buildForegroundNotification(contentText: String): Notification {
+        createNotificationChannel()
+
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            ?: Intent().setClassName(packageName, "net.linkpc.client.MainActivity").apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,
@@ -408,9 +537,37 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         return builder
             .setContentTitle("linkpc — Защищенное соединение")
             .setContentText(contentText)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(getAppIcon())
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
+    }
+
+    private fun ensureForegroundNotification(contentText: String) {
+        val notification = buildForegroundNotification(contentText)
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "startForeground with SPECIAL_USE failed, falling back to standard startForeground", e)
+            try {
+                startForeground(NOTIFICATION_ID, notification)
+            } catch (e2: Throwable) {
+                Log.e(TAG, "Fallback startForeground also failed", e2)
+            }
+        }
+    }
+
+    private fun updateForegroundNotification(contentText: String) {
+        try {
+            val notification = buildForegroundNotification(contentText)
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            notificationManager?.notify(NOTIFICATION_ID, notification)
+        } catch (e: Throwable) {
+            Log.w(TAG, "Failed to update notification", e)
+        }
     }
 }
