@@ -155,6 +155,17 @@ class VpnService {
         rules.insert(0, {"action": "sniff"});
       }
 
+      // Normalize outbounds transport path for sing-box httpupgrade
+      final outbounds = (map['outbounds'] as List<dynamic>?) ?? [];
+      for (final ob in outbounds) {
+        if (ob is Map && ob['transport'] is Map) {
+          final t = ob['transport'] as Map;
+          if (t['type'] == 'httpupgrade' && t['path'] == '/xhttp') {
+            t['path'] = '/xhttp-up';
+          }
+        }
+      }
+
       // Smart Mode: Direct routing for Russian domains
       if (routingMode == AppConstants.routeModeSmart) {
         bool hasRuRule = rules.any((r) => r is Map && r['outbound'] == 'direct');
@@ -194,12 +205,19 @@ class VpnService {
     final appSupportDir = await getApplicationSupportDirectory();
     final localBinary = File('${appSupportDir.path}${Platform.pathSeparator}$exeName');
     if (localBinary.existsSync()) {
-      if (!Platform.isWindows) {
+      // Validate file size: full sing-box binary is ~40MB - 60MB. Ignore/remove corrupt partial files.
+      if (localBinary.lengthSync() > 10000000) {
+        if (!Platform.isWindows) {
+          try {
+            await Process.run('chmod', ['+x', localBinary.path]);
+          } catch (_) {}
+        }
+        return localBinary.path;
+      } else {
         try {
-          await Process.run('chmod', ['+x', localBinary.path]);
+          localBinary.deleteSync();
         } catch (_) {}
       }
-      return localBinary.path;
     }
 
     // 3. Check system PATH locations on macOS / Linux
@@ -282,17 +300,28 @@ class VpnService {
       return;
     }
 
-    // Write config to temporary directory
+    // Write config to temporary directory ensuring parent folder exists
     final tempDir = await getTemporaryDirectory();
     final configFile = File('${tempDir.path}${Platform.pathSeparator}linkpc_config.json');
-    await configFile.writeAsString(configJson);
+    try {
+      if (!configFile.parent.existsSync()) {
+        await configFile.parent.create(recursive: true);
+      }
+      await configFile.writeAsString(configJson);
+    } catch (e) {
+      _log('Ошибка записи файла конфигурации: $e');
+      _setStatus(VpnStatus.error);
+      return;
+    }
 
     _log('Запуск sing-box ($binaryPath)...');
 
     try {
+      final workDir = File(binaryPath).parent.path;
       _desktopProcess = await Process.start(
         binaryPath,
         ['run', '-c', configFile.path],
+        workingDirectory: workDir,
         mode: ProcessStartMode.normal,
       );
 
