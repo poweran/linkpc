@@ -119,14 +119,13 @@ jobs:
           echo "Downloading sing-box libbox.aar core..."
           curl -L -o android/app/libs/libbox.aar "https://vless.linkpc.net/downloads/libbox.aar" ||           curl -L -o android/app/libs/libbox.aar "https://github.com/singbox-android/libbox/releases/download/1.14.4/libbox.aar"
 
-      - name: Fast Build Android APK
+      - name: Fast Build Android APK (arm64-v8a)
         run: |
-          flutter build apk --release --split-per-abi --android-skip-build-dependency-validation
+          flutter build apk --release --android-skip-build-dependency-validation
           mkdir -p output
-          # Main linkpc-android.apk is arm64 (99.9% of modern phones, ~35MB instead of 291MB)
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk output/linkpc-android.apk
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk output/linkpc-android-arm64.apk
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk output/linkpc-android-armv7.apk
+          # 64-bit ARM APK only (99.9% of modern phones, ~35MB)
+          cp build/app/outputs/flutter-apk/app-release.apk output/linkpc-android.apk
+          cp build/app/outputs/flutter-apk/app-release.apk output/linkpc-android-arm64.apk
 
       - name: Upload Android Artifact
         uses: actions/upload-artifact@v4
