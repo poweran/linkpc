@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:app_links/app_links.dart';
 import 'app.dart';
@@ -5,7 +6,21 @@ import 'core/services/api_service.dart';
 import 'core/services/storage_service.dart';
 import 'core/services/vpn_service.dart';
 
+class LinkpcHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return super.createHttpClient(context)
+      ..badCertificateCallback = (X509Certificate cert, String host, int port) {
+        if (host == 'vless.linkpc.net' || host == '188.120.249.117' || host.endsWith('linkpc.net')) {
+          return true;
+        }
+        return false;
+      };
+  }
+}
+
 void main() async {
+  HttpOverrides.global = LinkpcHttpOverrides();
   WidgetsFlutterBinding.ensureInitialized();
 
   // Initialize persistence & VPN service

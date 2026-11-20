@@ -1,10 +1,24 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import '../constants/app_constants.dart';
 import '../models/user_profile.dart';
 import 'storage_service.dart';
 
 class ApiService {
+  static http.Client get _httpClient {
+    final io = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10)
+      ..badCertificateCallback = (X509Certificate cert, String host, int port) {
+        if (host == 'vless.linkpc.net' || host == '188.120.249.117' || host.endsWith('linkpc.net')) {
+          return true;
+        }
+        return false;
+      };
+    return IOClient(io);
+  }
+
   static String normalizeToken(String input) {
     var raw = input.trim();
     if (raw.startsWith('linkpc://sub?url=')) {
@@ -32,13 +46,19 @@ class ApiService {
     final cleanToken = normalizeToken(token);
     final url = buildSubscriptionUrl(cleanToken);
 
-    final response = await http.get(
-      Uri.parse(url),
-      headers: {
-        'User-Agent': 'linkpc-client/${AppConstants.appVersion}',
-        'Accept': 'application/json',
-      },
-    ).timeout(const Duration(seconds: 10));
+    final client = _httpClient;
+    http.Response response;
+    try {
+      response = await client.get(
+        Uri.parse(url),
+        headers: {
+          'User-Agent': 'linkpc-client/${AppConstants.appVersion}',
+          'Accept': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 10));
+    } finally {
+      client.close();
+    }
 
     if (response.statusCode != 200) {
       throw Exception('Ошибка загрузки профиля: HTTP ${response.statusCode}');
