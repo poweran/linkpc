@@ -136,11 +136,10 @@ class VpnService {
         inbounds.add({
           "type": "tun",
           "tag": "tun-in",
-          "interface_name": "linkpc0",
-          "address": ["172.19.0.1/30"],
+          "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+          "mtu": 1500,
           "auto_route": true,
           "strict_route": true,
-          "stack": "system",
         });
       }
 
@@ -153,6 +152,22 @@ class VpnService {
       bool hasSniff = rules.any((r) => r is Map && r['action'] == 'sniff');
       if (!hasSniff) {
         rules.insert(0, {"action": "sniff"});
+      }
+
+      // Ensure DNS hijacking for TUN / transparent proxying so that DNS queries
+      // entering the tunnel are resolved through sing-box's internal DNS engine
+      bool hasHijackDns = rules.any((r) => r is Map && r['action'] == 'hijack-dns');
+      if (!hasHijackDns) {
+        final sniffIdx = rules.indexWhere((r) => r is Map && r['action'] == 'sniff');
+        final insertIdx = sniffIdx >= 0 ? sniffIdx + 1 : 0;
+        rules.insert(insertIdx, {
+          "protocol": "dns",
+          "action": "hijack-dns"
+        });
+        rules.insert(insertIdx + 1, {
+          "port": 53,
+          "action": "hijack-dns"
+        });
       }
 
       // Normalize outbounds transport path for sing-box httpupgrade

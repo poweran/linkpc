@@ -3,6 +3,7 @@ package net.linkpc.client
 import android.app.Activity
 import android.content.Intent
 import android.net.VpnService
+import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -71,6 +72,10 @@ class MainActivity: FlutterActivity() {
             action = LinkpcVpnService.ACTION_START
             putExtra(LinkpcVpnService.EXTRA_CONFIG, config)
         }
-        startService(intent)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
     }
 }

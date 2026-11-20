@@ -72,3 +72,8 @@ migrate_working_dir/
 !**/ios/**/default.mode2v3
 !**/ios/**/default.perspectivev3
 !**/ios/**/project.pbxproj
+
+# Local Android AAR libraries
+android/app/libs/*.aar
+android/app/libs/*.jar
+android/app/libs/

@@ -112,6 +112,12 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Bundle libbox.aar core
+        run: |
+          mkdir -p android/app/libs
+          echo "Downloading sing-box libbox.aar core..."
+          curl -L -o android/app/libs/libbox.aar "https://vless.linkpc.net/downloads/libbox.aar" ||           curl -L -o android/app/libs/libbox.aar "https://github.com/singbox-android/libbox/releases/download/1.14.4/libbox.aar"
+
       - name: Fast Build Android APK
         run: |
           flutter build apk --release --android-skip-build-dependency-validation
