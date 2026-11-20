@@ -51,8 +51,20 @@ jobs:
 
       - name: Bundle sing-box core and wintun
         run: |
-          Invoke-WebRequest -Uri "https://vless.linkpc.net/downloads/sing-box.exe" -OutFile "build\windows\x64\runner\Release\sing-box.exe"
-          Invoke-WebRequest -Uri "https://vless.linkpc.net/downloads/wintun.dll" -OutFile "build\windows\x64\runner\Release\wintun.dll"
+          try {
+            Invoke-WebRequest -Uri "https://vless.linkpc.net/downloads/sing-box.exe" -OutFile "build\windows\x64\runner\Release\sing-box.exe"
+          } catch {
+            curl.exe -L -o sb.zip "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-windows-amd64.zip"
+            Expand-Archive -Path sb.zip -DestinationPath sb_t
+            Get-ChildItem -Path sb_t -Recurse -Filter "sing-box.exe" | Copy-Item -Destination "build\windows\x64\runner\Release\"
+          }
+          try {
+            Invoke-WebRequest -Uri "https://vless.linkpc.net/downloads/wintun.dll" -OutFile "build\windows\x64\runner\Release\wintun.dll"
+          } catch {
+            curl.exe -L -o wt.zip "https://www.wintun.net/builds/wintun-0.14.1.zip"
+            Expand-Archive -Path wt.zip -DestinationPath wt_t
+            Copy-Item "wt_t\wintun\bin\amd64\wintun.dll" -Destination "build\windows\x64\runner\Release\"
+          }
 
       - name: Package Windows Zip
         run: |
