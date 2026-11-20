@@ -73,6 +73,11 @@ jobs:
       - name: Build Windows Executable
         run: flutter build windows --release
 
+      - name: Bundle sing-box core and wintun
+        run: |
+          Invoke-WebRequest -Uri "https://vless.linkpc.net/downloads/sing-box.exe" -OutFile "build\windows\x64\runner\Release\sing-box.exe"
+          Invoke-WebRequest -Uri "https://vless.linkpc.net/downloads/wintun.dll" -OutFile "build\windows\x64\runner\Release\wintun.dll"
+
       - name: Package Windows Zip
         run: |
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath linkpc-windows-x64.zip
