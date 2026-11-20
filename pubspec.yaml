@@ -1,0 +1,42 @@
+name: linkpc
+description: "High-speed, ultra-lightweight multiplatform client for linkpc (sing-box libbox core)"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+  flutter: ">=3.16.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Networking & APIs
+  http: ^1.2.0
+
+  # Storage
+  shared_preferences: ^2.2.2
+  path_provider: ^2.1.2
+
+  # UI & Vector Graphics
+  flutter_svg: ^2.0.10
+  intl: ^0.19.0
+
+  # Deep Links & URLs
+  app_links: ^6.0.1
+  url_launcher: ^6.2.4
+
+  # Notifications (Foreground VPN service notification)
+  flutter_local_notifications: ^17.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/branding/
+    - assets/icons/

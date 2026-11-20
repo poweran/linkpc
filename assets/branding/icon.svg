@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A" />
+      <stop offset="50%" stop-color="#080C14" />
+      <stop offset="100%" stop-color="#030712" />
+    </linearGradient>
+
+    <!-- Neon Cyan Gradient -->
+    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="50%" stop-color="#00F0FF" />
+      <stop offset="100%" stop-color="#0284C7" />
+    </linearGradient>
+
+    <!-- Neon Emerald Gradient -->
+    <linearGradient id="neonGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00FF88" />
+      <stop offset="100%" stop-color="#10B981" />
+    </linearGradient>
+
+    <!-- Border Glow Gradient -->
+    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F0FF" stop-opacity="0.7" />
+      <stop offset="50%" stop-color="#1E293B" stop-opacity="0.3" />
+      <stop offset="100%" stop-color="#00FF88" stop-opacity="0.6" />
+    </linearGradient>
+
+    <!-- Drop Shadows and Glows -->
+    <filter id="neonGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="10" result="blur1" />
+      <feGaussianBlur stdDeviation="24" result="blur2" />
+      <feMerge>
+        <feMergeNode in="blur2" />
+        <feMergeNode in="blur1" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="pulseGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="14" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Base Squircle Background -->
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#bgGrad)" stroke="url(#borderGrad)" stroke-width="4" />
+
+  <!-- Subtle Cyber Matrix Grid in background -->
+  <g opacity="0.08" stroke="#00F0FF" stroke-width="1.5">
+    <line x1="80" y1="120" x2="432" y2="120" />
+    <line x1="80" y1="190" x2="432" y2="190" />
+    <line x1="80" y1="260" x2="432" y2="260" />
+    <line x1="80" y1="330" x2="432" y2="330" />
+    <line x1="80" y1="400" x2="432" y2="400" />
+    <line x1="120" y1="80" x2="120" y2="432" />
+    <line x1="190" y1="80" x2="190" y2="432" />
+    <line x1="260" y1="80" x2="260" y2="432" />
+    <line x1="330" y1="80" x2="330" y2="432" />
+    <line x1="400" y1="80" x2="400" y2="432" />
+  </g>
+
+  <!-- Decorative Corner Cyber Brackets -->
+  <path d="M 52 110 L 52 52 L 110 52" fill="none" stroke="#00F0FF" stroke-width="3" opacity="0.3" />
+  <path d="M 460 110 L 460 52 L 402 52" fill="none" stroke="#00F0FF" stroke-width="3" opacity="0.3" />
+  <path d="M 52 402 L 52 460 L 110 460" fill="none" stroke="#00F0FF" stroke-width="3" opacity="0.3" />
+  <path d="M 460 402 L 460 460 L 402 460" fill="none" stroke="#00FF88" stroke-width="3" opacity="0.3" />
+
+  <!-- Ambient Radial Glow behind the central logo -->
+  <circle cx="240" cy="256" r="130" fill="#00F0FF" opacity="0.12" filter="blur(40px)" />
+
+  <!-- Core Logo Glyph: Stylized Futuristic 'linkpc' Monogram -->
+  <!-- Represents: 'L' and High-Speed Tunnel Beam Link '>' with active secure node -->
+  <g filter="url(#neonGlow)">
+    <!-- Primary Vertical Stem of 'L' -->
+    <path d="M 148 130 
+             L 196 130 
+             L 196 320 
+             L 310 320 
+             L 310 368 
+             L 148 368 
+             Z" 
+          fill="url(#cyanGrad)" />
+
+    <!-- Upper High-Speed Tunnel Beam (Data Wave entering) -->
+    <path d="M 230 148 
+             L 348 248 
+             L 300 248 
+             L 204 168 
+             Z" 
+          fill="url(#cyanGrad)" opacity="0.8" />
+
+    <!-- Terminal Fast Node Chevron (Encrypted Egress) -->
+    <path d="M 252 248 
+             L 358 248 
+             L 396 284 
+             L 358 320 
+             L 252 320 
+             L 282 284 
+             Z" 
+          fill="url(#cyanGrad)" />
+
+    <!-- Active Shield Node Point -->
+    <circle cx="396" cy="284" r="14" fill="url(#neonGrad)" filter="url(#pulseGlow)" />
+    <circle cx="396" cy="284" r="6" fill="#FFFFFF" />
+  </g>
+</svg>

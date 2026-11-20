@@ -1,0 +1,51 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:app_links/app_links.dart';
+import 'app.dart';
+import 'core/services/api_service.dart';
+import 'core/services/storage_service.dart';
+import 'core/services/vpn_service.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize persistence & VPN service
+  await StorageService.init();
+  VpnService.init();
+
+  // Listen to deep links: linkpc://sub?url=...
+  _initDeepLinks();
+
+  runApp(const LinkpcApp());
+}
+
+void _initDeepLinks() {
+  try {
+    final appLinks = AppLinks();
+
+    // Cold start link
+    appLinks.getInitialLink().then((uri) {
+      if (uri != null) _handleIncomingUri(uri);
+    });
+
+    // Foreground / runtime link
+    appLinks.uriLinkStream.listen((uri) {
+      _handleIncomingUri(uri);
+    });
+  } catch (e) {
+    debugPrint('Deep links init error: $e');
+  }
+}
+
+void _handleIncomingUri(Uri uri) {
+  if (uri.scheme == 'linkpc') {
+    final subUrl = uri.queryParameters['url'];
+    final token = uri.queryParameters['token'];
+    final target = subUrl ?? token;
+    if (target != null && target.isNotEmpty) {
+      final clean = ApiService.normalizeToken(target);
+      StorageService.saveToken(clean);
+      ApiService.fetchProfile(clean);
+    }
+  }
+}
