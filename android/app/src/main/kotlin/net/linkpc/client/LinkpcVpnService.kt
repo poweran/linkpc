@@ -9,6 +9,8 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -55,13 +57,18 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
-            updateDefaultInterface()
+            Log.i(TAG, "Physical network available: $network")
+            updateDefaultInterface(network)
         }
         override fun onLost(network: Network) {
+            Log.i(TAG, "Physical network lost: $network")
             updateDefaultInterface()
         }
         override fun onLinkPropertiesChanged(network: Network, linkProperties: android.net.LinkProperties) {
-            updateDefaultInterface()
+            updateDefaultInterface(network)
+        }
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+            updateDefaultInterface(network)
         }
     }
 
@@ -132,11 +139,16 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
             connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    connectivityManager?.registerDefaultNetworkCallback(networkCallback)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    // Only listen to physical networks that have Internet and are NOT a VPN
+                    val request = NetworkRequest.Builder()
+                        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                        .build()
+                    connectivityManager?.registerNetworkCallback(request, networkCallback)
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "registerDefaultNetworkCallback failed", e)
+                Log.w(TAG, "registerNetworkCallback failed", e)
             }
 
             val server = CommandServer(this, this)
@@ -158,6 +170,12 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     @Synchronized
     private fun stopTunnel() {
         isRunning = false
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                setUnderlyingNetworks(null)
+            }
+        } catch (_: Exception) {}
+
         try {
             commandServer?.closeService()
             commandServer?.close()
@@ -202,7 +220,10 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     override fun autoDetectInterfaceControl(fd: Int) {
         try {
-            protect(fd)
+            val ok = protect(fd)
+            if (!ok) {
+                Log.w(TAG, "protect(fd=$fd) returned false")
+            }
         } catch (e: Exception) {
             Log.w(TAG, "protect(fd) failed", e)
         }
@@ -308,6 +329,7 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 }
             }
 
+            val addedRoutes = HashSet<String>()
             var hasR4 = false
             try {
                 val r4 = options.inet4RouteAddress
@@ -316,7 +338,7 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                     if (p != null) {
                         val ip = p.address()
                         val prefix = p.prefix()
-                        if (!ip.isNullOrBlank()) {
+                        if (!ip.isNullOrBlank() && addedRoutes.add("$ip/$prefix")) {
                             builder.addRoute(ip, prefix)
                             hasR4 = true
                         }
@@ -326,9 +348,11 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 Log.w(TAG, "Error configuring IPv4 routes", e)
             }
 
-            if (!hasR4 && hasInet4) {
+            if (hasInet4 && (!hasR4 || !addedRoutes.contains("0.0.0.0/0"))) {
                 try {
-                    builder.addRoute("0.0.0.0", 0)
+                    if (addedRoutes.add("0.0.0.0/0")) {
+                        builder.addRoute("0.0.0.0", 0)
+                    }
                 } catch (e: Exception) {
                     Log.w(TAG, "Default IPv4 route failed", e)
                 }
@@ -373,20 +397,92 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         defaultInterfaceListener = null
     }
 
-    private fun updateDefaultInterface() {
+    private fun findUnderlyingNetwork(): Network? {
+        val cm = connectivityManager ?: (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager) ?: return null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            val networks = cm.allNetworks ?: return null
+            // 1. Prefer Wi-Fi or Ethernet
+            for (net in networks) {
+                val caps = cm.getNetworkCapabilities(net) ?: continue
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
+                if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                    if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
+                        return net
+                    }
+                }
+            }
+            // 2. Next prefer Cellular
+            for (net in networks) {
+                val caps = cm.getNetworkCapabilities(net) ?: continue
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
+                if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                    if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
+                        return net
+                    }
+                }
+            }
+            // 3. Fallback: any network with NOT_VPN
+            for (net in networks) {
+                val caps = cm.getNetworkCapabilities(net) ?: continue
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
+                if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) {
+                    return net
+                }
+            }
+        }
+        return null
+    }
+
+    private fun updateDefaultInterface(specifiedNetwork: Network? = null) {
         val listener = defaultInterfaceListener ?: return
         try {
-            val cm = connectivityManager ?: (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)
-            val activeNet = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) cm?.activeNetwork else null
-            val lp = activeNet?.let { cm?.getLinkProperties(it) }
+            val cm = connectivityManager ?: (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager) ?: return
+            val targetNet = specifiedNetwork ?: findUnderlyingNetwork()
+
+            if (targetNet == null) {
+                Log.w(TAG, "No underlying physical network found")
+                return
+            }
+
+            val caps = cm.getNetworkCapabilities(targetNet)
+            if (caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) {
+                Log.w(TAG, "Rejecting network $targetNet: is VPN or lacks NOT_VPN")
+                return
+            }
+
+            val lp = cm.getLinkProperties(targetNet)
             val ifName = lp?.interfaceName ?: ""
+            if (ifName.isBlank() || ifName.startsWith("tun") || ifName.startsWith("ppp")) {
+                Log.w(TAG, "Rejecting virtual interface $ifName")
+                return
+            }
+
             val ifIdx = try {
-                if (ifName.isNotEmpty()) NetworkInterface.getByName(ifName)?.index ?: -1 else -1
+                NetworkInterface.getByName(ifName)?.index ?: -1
             } catch (_: Exception) {
                 -1
             }
-            listener.updateDefaultInterface(ifName, ifIdx, false, false)
-        } catch (_: Exception) {}
+
+            val isExpensive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
+            } else false
+
+            val isConstrained = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_CONGESTED) == false
+            } else false
+
+            Log.i(TAG, "Setting underlying default interface: $ifName (index=$ifIdx, expensive=$isExpensive)")
+            listener.updateDefaultInterface(ifName, ifIdx, isExpensive, isConstrained)
+
+            // Inform Android VpnService of the underlying physical network to prevent routing loops
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                setUnderlyingNetworks(arrayOf(targetNet))
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "updateDefaultInterface error", e)
+        }
     }
 
     override fun getInterfaces(): NetworkInterfaceIterator {
@@ -396,9 +492,13 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             while (nifs != null && nifs.hasMoreElements()) {
                 val nif = nifs.nextElement()
                 if (nif == null || !nif.isUp) continue
+                val name = nif.name ?: ""
+                // Exclude loopback and virtual VPN tun interfaces from interface list
+                if (name == "lo" || name.startsWith("tun") || name.startsWith("dummy") || name.startsWith("p2p")) continue
+
                 val boxIf = io.nekohasekai.libbox.NetworkInterface()
                 boxIf.index = nif.index
-                boxIf.name = nif.name
+                boxIf.name = name
                 try { boxIf.mtu = if (nif.mtu > 0) nif.mtu else 1500 } catch (_: Exception) {}
                 val addrs = mutableListOf<String>()
                 val interfaceAddresses = try { nif.interfaceAddresses } catch (_: Exception) { null }

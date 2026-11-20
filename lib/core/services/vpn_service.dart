@@ -160,6 +160,9 @@ class VpnService {
             srv['type'] = 'udp';
             srv['server'] = '77.88.8.8';
           }
+          if (srv['tag'] == 'dns-remote' && srv['type'] == 'https') {
+            srv['type'] = 'udp';
+          }
         }
       }
       map['dns'] = dns;
