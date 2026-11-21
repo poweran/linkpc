@@ -412,7 +412,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     decoration: BoxDecoration(
                       color: _status.isConnected
                           ? AppColors.neonEmerald
-                          : (_status.isError || hasErrors ? AppColors.error : AppColors.cyberCyan),
+                          : (_status == VpnStatus.error || hasErrors ? AppColors.error : AppColors.cyberCyan),
                       shape: BoxShape.circle,
                     ),
                   ),

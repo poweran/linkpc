@@ -25,4 +25,6 @@ extension VpnStatusExt on VpnStatus {
   bool get isConnected => this == VpnStatus.connected;
   bool get isConnecting => this == VpnStatus.connecting;
   bool get isBusy => this == VpnStatus.connecting || this == VpnStatus.disconnecting;
+  bool get isError => this == VpnStatus.error;
+  bool get isDisconnected => this == VpnStatus.disconnected;
 }
