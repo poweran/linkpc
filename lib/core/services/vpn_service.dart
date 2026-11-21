@@ -105,11 +105,56 @@ class VpnService {
   static final List<String> _logHistory = [];
   static List<String> get logHistory => List.unmodifiable(_logHistory);
 
+  static List<String> get recentLogs {
+    if (_logHistory.isEmpty) return const [];
+    return _logHistory.length > 5 ? _logHistory.sublist(_logHistory.length - 5) : List.unmodifiable(_logHistory);
+  }
+
+  static Future<List<String>> getNativeLogs() async {
+    if (Platform.isAndroid) {
+      try {
+        final list = await _channel.invokeMethod<List<dynamic>>('getLogs');
+        if (list != null) {
+          final res = list.map((e) => e.toString()).toList();
+          for (final item in res) {
+            if (!_logHistory.contains(item)) {
+              _logHistory.add(item);
+            }
+          }
+          return res;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    return List.unmodifiable(_logHistory);
+  }
+
+  static Future<void> clearLogs() async {
+    _logHistory.clear();
+    if (Platform.isAndroid) {
+      try {
+        await _channel.invokeMethod('clearLogs');
+      } catch (_) {}
+    }
+    _logsController.add('--- Консоль очищена ---');
+  }
+
+  static Future<String?> getNativeLogFilePath() async {
+    if (Platform.isAndroid) {
+      try {
+        return await _channel.invokeMethod<String>('getLogFilePath');
+      } catch (_) {}
+    }
+    return null;
+  }
+
   static void _log(String message) {
-    final timestamp = DateTime.now().toIso8601String().substring(11, 19);
-    final entry = '[$timestamp] $message';
+    final entry = message.startsWith('[')
+        ? message
+        : '[${DateTime.now().toIso8601String().substring(11, 19)}] $message';
     _logHistory.add(entry);
-    if (_logHistory.length > 500) _logHistory.removeAt(0);
+    if (_logHistory.length > 1000) _logHistory.removeAt(0);
     _logsController.add(entry);
     // ignore: avoid_print
     print(entry);
@@ -119,6 +164,13 @@ class VpnService {
   static String prepareConfig(String rawConfig, {required String routingMode}) {
     try {
       final map = json.decode(rawConfig) as Map<String, dynamic>;
+
+      // Enable sing-box log engine for real-time mobile & desktop telemetry
+      map['log'] = {
+        "disabled": false,
+        "level": "info",
+        "timestamp": true
+      };
 
       // Ensure mixed inbound on 127.0.0.1:2080 is always active for system proxy routing
       // Modern sing-box 1.11+: legacy inbound sniff fields are replaced by route rules
@@ -164,6 +216,7 @@ class VpnService {
           }
           if (srv['tag'] == 'dns-remote' && srv['type'] == 'https') {
             srv['type'] = 'udp';
+            srv.remove('path');
           }
         }
       }

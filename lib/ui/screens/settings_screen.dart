@@ -5,6 +5,7 @@ import '../../core/constants/app_constants.dart';
 import '../../core/services/storage_service.dart';
 import '../widgets/cyber_card.dart';
 import 'import_screen.dart';
+import 'logs_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -153,6 +154,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 'Автоматически запускать шлюз при открытии приложения',
                 style: TextStyle(color: AppColors.textMuted, fontSize: 11, fontFamily: 'monospace'),
               ),
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Diagnostics & Logs Section
+          const Text(
+            'ДИАГНОСТИКА И ЛОГИ СЕТИ',
+            style: TextStyle(
+              color: AppColors.cyberCyan,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'monospace',
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          CyberCard(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.terminal_rounded, color: AppColors.cyberCyan, size: 24),
+              title: const Text(
+                'Терминал логов ядра и Android',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              subtitle: const Text(
+                'Просмотр журнала работы sing-box (libbox), сетевых интерфейсов, DNS и ошибок соединения.',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 11, fontFamily: 'monospace'),
+              ),
+              trailing: const Icon(Icons.arrow_forward_ios_rounded, color: AppColors.cyberCyan, size: 14),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const LogsScreen()),
+                );
+              },
             ),
           ),
 

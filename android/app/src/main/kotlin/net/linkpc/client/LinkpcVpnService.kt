@@ -17,6 +17,7 @@ import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.util.Log
 import io.nekohasekai.libbox.*
+import java.io.File
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
 
@@ -52,16 +53,17 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private var commandServer: CommandServer? = null
+    private var commandClient: CommandClient? = null
     private var defaultInterfaceListener: InterfaceUpdateListener? = null
     private var connectivityManager: ConnectivityManager? = null
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
-            Log.i(TAG, "Physical network available: $network")
+            VpnEvents.log("Network", "Физическая сеть доступна: $network")
             updateDefaultInterface(network)
         }
         override fun onLost(network: Network) {
-            Log.i(TAG, "Physical network lost: $network")
+            VpnEvents.log("Network", "Физическая сеть потеряна: $network")
             updateDefaultInterface()
         }
         override fun onLinkPropertiesChanged(network: Network, linkProperties: android.net.LinkProperties) {
@@ -74,6 +76,9 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     override fun onCreate() {
         super.onCreate()
+        val logFile = File(getExternalFilesDir(null) ?: filesDir, "linkpc.log")
+        VpnEvents.initLogFile(logFile)
+        VpnEvents.log("Service", "Служба LinkpcVpnService создана (лог: ${logFile.absolutePath})")
         createNotificationChannel()
     }
 
@@ -81,17 +86,16 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         val action = intent?.action ?: return START_NOT_STICKY
 
         if (action == ACTION_START) {
-            // Android 8-14 requirement: call startForeground IMMEDIATELY to prevent ForegroundServiceDidNotStartInTimeException
+            // Android requirement: startForeground immediately
             ensureForegroundNotification("Подключение к шлюзу linkpc...")
 
             val config = intent.getStringExtra(EXTRA_CONFIG) ?: ""
             if (config.isBlank()) {
-                Log.e(TAG, "Empty config provided to onStartCommand, stopping")
+                VpnEvents.log("Service", "Ошибка: передан пустой конфиг")
                 stopTunnel()
                 return START_NOT_STICKY
             }
 
-            // Start sing-box core on a worker thread to avoid blocking Android main UI thread
             Thread({
                 startTunnel(config)
             }, "linkpc-tunnel-start").start()
@@ -108,9 +112,12 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     @Synchronized
     private fun startTunnel(config: String) {
         if (isRunning) {
-            Log.i(TAG, "Tunnel already active")
+            VpnEvents.log("Service", "Туннель уже запущен")
             return
         }
+
+        VpnEvents.sendStatus("connecting")
+        VpnEvents.log("Service", "Запуск туннеля linkpc...")
 
         try {
             val baseDir = filesDir
@@ -122,6 +129,7 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
             if (!isLibboxSetup) {
                 try {
+                    VpnEvents.log("Core", "Инициализация libbox runtime (baseDir=${baseDir.path})...")
                     Libbox.setup(SetupOptions().apply {
                         basePath = baseDir.path
                         this.workingPath = workingDir.path
@@ -131,8 +139,9 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                         debug = false
                     })
                     isLibboxSetup = true
+                    VpnEvents.log("Core", "libbox runtime успешно настроен")
                 } catch (e: Exception) {
-                    Log.w(TAG, "Libbox.setup error (may be already initialized)", e)
+                    VpnEvents.log("Core", "Предупреждение libbox.setup: ${e.message}")
                     isLibboxSetup = true
                 }
             }
@@ -145,37 +154,83 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             if (initialNet != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                 try {
                     setUnderlyingNetworks(arrayOf(initialNet))
-                    Log.i(TAG, "Early underlying network set: $initialNet")
+                    VpnEvents.log("Network", "Установлена базовая сеть (underlying): $initialNet")
                 } catch (e: Exception) {
-                    Log.w(TAG, "Initial setUnderlyingNetworks failed", e)
+                    VpnEvents.log("Network", "Ошибка setUnderlyingNetworks: ${e.message}")
                 }
             }
 
+            // Register network callback specifically for non-VPN internet networks
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    connectivityManager?.registerDefaultNetworkCallback(networkCallback)
-                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    val request = NetworkRequest.Builder()
-                        .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-                        .build()
-                    connectivityManager?.registerNetworkCallback(request, networkCallback)
-                }
+                val request = NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                    .build()
+                connectivityManager?.registerNetworkCallback(request, networkCallback)
+                VpnEvents.log("Network", "Запущен мониторинг физических сетей (Wi-Fi / Mobile)")
             } catch (e: Exception) {
-                Log.w(TAG, "registerNetworkCallback failed", e)
+                VpnEvents.log("Network", "Ошибка registerNetworkCallback: ${e.message}")
             }
 
             val server = CommandServer(this, this)
             server.start()
             commandServer = server
 
-            Log.i(TAG, "Starting sing-box commandServer with config...")
+            VpnEvents.log("Core", "Запуск sing-box CommandServer с конфигурацией...")
             server.startOrReloadService(config, OverrideOptions())
             isRunning = true
 
+            // Connect CommandClient to stream live sing-box logs and real traffic metrics
+            try {
+                val clientOptions = CommandClientOptions().apply {
+                    addCommand(Libbox.CommandLog)
+                    addCommand(Libbox.CommandStatus)
+                    statusInterval = 1000L
+                }
+                val client = CommandClient(object : CommandClientHandler {
+                    override fun clearLogs() {}
+                    override fun connected() {
+                        VpnEvents.log("Client", "Подключен клиент мониторинга sing-box core")
+                    }
+                    override fun disconnected(message: String) {
+                        VpnEvents.log("Client", "Отключен клиент мониторинга: $message")
+                    }
+                    override fun initializeClashMode(modeList: StringIterator, currentMode: String) {}
+                    override fun setDefaultLogLevel(level: Int) {}
+                    override fun updateClashMode(newMode: String) {}
+                    override fun writeConnectionEvents(events: ConnectionEvents) {}
+                    override fun writeGroups(groups: OutboundGroupIterator) {}
+                    override fun writeLogs(messageList: LogIterator) {
+                        while (messageList.hasNext()) {
+                            val entry = messageList.next()
+                            val msg = entry?.message ?: ""
+                            if (msg.isNotBlank()) {
+                                VpnEvents.log("box", msg)
+                            }
+                        }
+                    }
+                    override fun writeOutbounds(outbounds: OutboundGroupItemIterator) {}
+                    override fun writeStatus(status: StatusMessage) {
+                        VpnEvents.sendTraffic(
+                            status.uplink,
+                            status.downlink,
+                            status.uplinkTotal,
+                            status.downlinkTotal
+                        )
+                    }
+                }, clientOptions)
+
+                client.connect()
+                commandClient = client
+            } catch (e: Throwable) {
+                VpnEvents.log("Client", "Не удалось запустить CommandClient логов: ${e.message}")
+            }
+
+            VpnEvents.sendStatus("connected")
             updateForegroundNotification("Шлюз linkpc активен • Трафик зашифрован")
-            Log.i(TAG, "linkpc tunnel successfully started")
+            VpnEvents.log("Service", "Туннель linkpc успешно запущен и готов к передаче данных")
         } catch (e: Throwable) {
-            Log.e(TAG, "Failed to start tunnel", e)
+            VpnEvents.log("Error", "Критическая ошибка запуска туннеля: ${e.message}")
             stopTunnel()
         }
     }
@@ -183,6 +238,9 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     @Synchronized
     private fun stopTunnel() {
         isRunning = false
+        VpnEvents.sendStatus("disconnecting")
+        VpnEvents.log("Service", "Остановка сетевого шлюза linkpc...")
+
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                 setUnderlyingNetworks(null)
@@ -190,10 +248,18 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         } catch (_: Exception) {}
 
         try {
+            commandClient?.disconnect()
+        } catch (e: Exception) {
+            VpnEvents.log("Client", "Ошибка отключения commandClient: ${e.message}")
+        } finally {
+            commandClient = null
+        }
+
+        try {
             commandServer?.closeService()
             commandServer?.close()
         } catch (e: Exception) {
-            Log.e(TAG, "close commandServer error", e)
+            VpnEvents.log("Core", "Ошибка закрытия commandServer: ${e.message}")
         } finally {
             commandServer = null
         }
@@ -201,7 +267,7 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         try {
             vpnInterface?.close()
         } catch (e: Exception) {
-            Log.e(TAG, "close vpnInterface error", e)
+            VpnEvents.log("TUN", "Ошибка закрытия vpnInterface: ${e.message}")
         } finally {
             vpnInterface = null
         }
@@ -215,6 +281,9 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         } catch (e: Exception) {
             Log.w(TAG, "stopForeground error", e)
         }
+
+        VpnEvents.sendStatus("disconnected")
+        VpnEvents.log("Service", "Шлюз linkpc полностью остановлен")
         stopSelf()
     }
 
@@ -224,6 +293,7 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     }
 
     override fun onRevoke() {
+        VpnEvents.log("Service", "VPN разрешение отозвано системой Android")
         stopTunnel()
     }
 
@@ -235,17 +305,20 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         try {
             val ok = protect(fd)
             if (!ok) {
-                Log.w(TAG, "protect(fd=$fd) returned false")
+                VpnEvents.log("Socket", "Предупреждение: protect(fd=$fd) вернул false")
             }
         } catch (e: Exception) {
-            Log.w(TAG, "protect(fd) failed", e)
+            VpnEvents.log("Socket", "Ошибка protect(fd=$fd): ${e.message}")
         }
     }
 
     override fun openTun(options: TunOptions): Int {
         if (prepare(this) != null) {
+            VpnEvents.log("TUN", "Ошибка: отсутствует системное разрешение VPN")
             throw IllegalStateException("Missing VPN permission")
         }
+
+        VpnEvents.log("TUN", "Инициализация TUN адаптера (MTU=${if (options.mtu > 0) options.mtu else 1500}, autoRoute=${options.autoRoute})...")
 
         val builder = Builder()
             .setSession("linkpc Gateway")
@@ -258,6 +331,7 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         // Exclude linkpc itself to prevent routing loops
         try {
             builder.addDisallowedApplication(packageName)
+            VpnEvents.log("TUN", "Исключено собственное приложение из туннеля ($packageName)")
         } catch (_: Exception) {}
 
         try {
@@ -282,20 +356,22 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                     val prefix = addr.prefix()
                     if (!ip.isNullOrBlank()) {
                         builder.addAddress(ip, prefix)
+                        VpnEvents.log("TUN", "Назначен IPv4 адрес: $ip/$prefix")
                         hasInet4 = true
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Error configuring IPv4 TUN address", e)
+            VpnEvents.log("TUN", "Ошибка настройки IPv4 TUN: ${e.message}")
         }
 
         if (!hasInet4) {
             try {
                 builder.addAddress("172.19.0.1", 30)
+                VpnEvents.log("TUN", "Назначен резервный IPv4 адрес: 172.19.0.1/30")
                 hasInet4 = true
             } catch (e: Exception) {
-                Log.w(TAG, "Fallback IPv4 address failed", e)
+                VpnEvents.log("TUN", "Ошибка резервного IPv4 адреса: ${e.message}")
             }
         }
 
@@ -324,10 +400,11 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                     val dns = dnsIt.next()
                     if (!dns.isNullOrBlank()) {
                         builder.addDnsServer(dns)
+                        VpnEvents.log("TUN", "Добавлен DNS сервер: $dns")
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Error configuring DNS server from options", e)
+                VpnEvents.log("TUN", "Ошибка настройки DNS: ${e.message}")
             }
 
             // Always add virtual gateway DNS
@@ -353,21 +430,23 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                         val prefix = p.prefix()
                         if (!ip.isNullOrBlank() && addedRoutes.add("$ip/$prefix")) {
                             builder.addRoute(ip, prefix)
+                            VpnEvents.log("TUN", "Добавлен маршрут: $ip/$prefix")
                             hasR4 = true
                         }
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Error configuring IPv4 routes", e)
+                VpnEvents.log("TUN", "Ошибка настройки маршрутов: ${e.message}")
             }
 
             if (hasInet4 && (!hasR4 || !addedRoutes.contains("0.0.0.0/0"))) {
                 try {
                     if (addedRoutes.add("0.0.0.0/0")) {
                         builder.addRoute("0.0.0.0", 0)
+                        VpnEvents.log("TUN", "Добавлен дефолтный IPv4 маршрут (0.0.0.0/0)")
                     }
                 } catch (e: Exception) {
-                    Log.w(TAG, "Default IPv4 route failed", e)
+                    VpnEvents.log("TUN", "Ошибка добавления маршрута 0.0.0.0/0: ${e.message}")
                 }
             }
 
@@ -397,7 +476,7 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
         val pfd = builder.establish() ?: throw IllegalStateException("Cannot establish VPN interface")
         vpnInterface = pfd
-        Log.i(TAG, "VPN interface established with fd=${pfd.fd}")
+        VpnEvents.log("TUN", "TUN сетевой интерфейс успешно создан (fd=${pfd.fd})")
         return pfd.fd
     }
 
@@ -454,22 +533,21 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val targetNet = specifiedNetwork ?: (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) cm.activeNetwork else null) ?: findUnderlyingNetwork()
 
             if (targetNet == null) {
-                Log.w(TAG, "No underlying physical network found")
+                VpnEvents.log("Network", "Физическая сеть не обнаружена")
                 return
             }
 
             val caps = cm.getNetworkCapabilities(targetNet)
             if (caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) {
-                Log.w(TAG, "Rejecting network $targetNet: is VPN or lacks NOT_VPN")
                 return
             }
 
-            // Immediately set Android VpnService underlying network to avoid routing drops
+            // Set underlying physical network on VpnService to prevent routing loops
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                 try {
                     setUnderlyingNetworks(arrayOf(targetNet))
                 } catch (e: Exception) {
-                    Log.w(TAG, "setUnderlyingNetworks failed", e)
+                    VpnEvents.log("Network", "Ошибка setUnderlyingNetworks: ${e.message}")
                 }
             }
 
@@ -478,7 +556,6 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val lp = cm.getLinkProperties(targetNet)
             val ifName = lp?.interfaceName ?: ""
             if (ifName.isBlank() || ifName.startsWith("tun") || ifName.startsWith("ppp")) {
-                Log.w(TAG, "Rejecting virtual interface $ifName")
                 return
             }
 
@@ -497,10 +574,10 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_CONGESTED) == false
             } else false
 
-            Log.i(TAG, "Setting underlying default interface: $ifName (index=$ifIdx, expensive=$isExpensive)")
+            VpnEvents.log("Network", "Основной физический интерфейс: $ifName (индекс=$ifIdx, лимитный=$isExpensive)")
             listener.updateDefaultInterface(ifName, ifIdx, isExpensive, isConstrained)
         } catch (e: Exception) {
-            Log.w(TAG, "updateDefaultInterface error", e)
+            VpnEvents.log("Network", "Ошибка updateDefaultInterface: ${e.message}")
         }
     }
 
@@ -526,7 +603,6 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                         try {
                             val addr = ia?.address ?: continue
                             val rawHost = addr.hostAddress ?: continue
-                            // Strip IPv6 scope ID (e.g. fe80::1%wlan0 -> fe80::1) so Go netip.ParsePrefix succeeds
                             val host = rawHost.substringBefore('%')
                             val prefix = ia.networkPrefixLength.toInt()
                             val validPrefix = if (prefix > 0) prefix else (if (addr is java.net.Inet6Address) 128 else 32)
@@ -608,6 +684,7 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     override fun triggerNativeCrash() {}
     override fun writeDebugMessage(message: String) {
         Log.d(TAG, message)
+        VpnEvents.log("libbox", message)
     }
 
     private fun createNotificationChannel() {

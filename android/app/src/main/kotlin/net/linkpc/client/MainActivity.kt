@@ -6,16 +6,31 @@ import android.net.VpnService
 import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity: FlutterActivity() {
     private val TUNNEL_CHANNEL = "net.linkpc.client/tunnel"
+    private val EVENT_CHANNEL = "net.linkpc.client/events"
     private val VPN_REQUEST_CODE = 2052
     private var pendingConfig: String? = null
     private var pendingResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // EventChannel for live Android + sing-box core logs and traffic telemetry
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL).setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    VpnEvents.setEventSink(events)
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    VpnEvents.setEventSink(null)
+                }
+            }
+        )
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, TUNNEL_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -45,6 +60,16 @@ class MainActivity: FlutterActivity() {
                 }
                 "status" -> {
                     result.success(LinkpcVpnService.isRunning)
+                }
+                "getLogs" -> {
+                    result.success(VpnEvents.getLogs())
+                }
+                "clearLogs" -> {
+                    VpnEvents.clear()
+                    result.success(true)
+                }
+                "getLogFilePath" -> {
+                    result.success(VpnEvents.getLogFilePath())
                 }
                 else -> result.notImplemented()
             }

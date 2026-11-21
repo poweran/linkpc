@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/models/traffic_stats.dart';
@@ -36,6 +37,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   StreamSubscription<VpnStatus>? _statusSub;
   StreamSubscription<TrafficStats>? _trafficSub;
+  StreamSubscription<String>? _logsSub;
+  List<String> _recentLogs = [];
   Timer? _pingTimer;
 
   @override
@@ -55,6 +58,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
     _trafficSub = VpnService.trafficStream.listen((traffic) {
       if (mounted) setState(() => _traffic = traffic);
+    });
+
+    _recentLogs = List.of(VpnService.recentLogs);
+    _logsSub = VpnService.logsStream.listen((_) {
+      if (mounted) {
+        setState(() {
+          _recentLogs = List.of(VpnService.recentLogs);
+        });
+      }
     });
 
     final token = StorageService.getToken();
@@ -169,6 +181,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _statusSub?.cancel();
     _trafficSub?.cancel();
+    _logsSub?.cancel();
     _pingTimer?.cancel();
     super.dispose();
   }
@@ -240,6 +253,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       stats: _traffic,
                       isConnected: isConnected,
                     ),
+
+                    const SizedBox(height: 14),
+
+                    // Real-time Diagnostics & Console Preview Card
+                    _buildDiagnosticsCard(),
 
                     const SizedBox(height: 14),
 
@@ -332,18 +350,162 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
 
-          // Actions: Terminal Logs & Settings
+          // Actions: Prominent Terminal Logs Button & Settings
           Row(
             children: [
-              IconButton(
-                onPressed: _openLogs,
-                tooltip: 'Логи и диагностика',
-                icon: const Icon(Icons.terminal_rounded, color: AppColors.cyberCyan, size: 22),
+              InkWell(
+                onTap: _openLogs,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: AppColors.cyberCyan.withOpacity(0.12),
+                    border: Border.all(color: AppColors.cyberCyan.withOpacity(0.6), width: 1),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.terminal_rounded, color: AppColors.cyberCyan, size: 15),
+                      SizedBox(width: 5),
+                      Text(
+                        'ЛОГИ',
+                        style: TextStyle(
+                          color: AppColors.cyberCyan,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
+              const SizedBox(width: 8),
               IconButton(
                 onPressed: _openSettings,
                 tooltip: 'Настройки',
                 icon: const Icon(Icons.tune_rounded, color: AppColors.textSecondary, size: 22),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDiagnosticsCard() {
+    final hasErrors = _recentLogs.any((l) {
+      final low = l.toLowerCase();
+      return low.contains('error') || low.contains('ошибка') || low.contains('fail');
+    });
+
+    return CyberCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: _status.isConnected
+                          ? AppColors.neonEmerald
+                          : (_status.isError || hasErrors ? AppColors.error : AppColors.cyberCyan),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'ДИАГНОСТИКА И ЛОГИ СЕТИ',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+              InkWell(
+                onTap: _openLogs,
+                child: const Text(
+                  'ТЕРМИНАЛ →',
+                  style: TextStyle(
+                    color: AppColors.cyberCyan,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.voidBlack,
+              border: Border.all(color: AppColors.border),
+            ),
+            child: _recentLogs.isEmpty
+                ? const Text(
+                    'Ожидание сетевой активности шлюза (включите тумблер)...',
+                    style: TextStyle(color: AppColors.textMuted, fontSize: 10, fontFamily: 'monospace'),
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: _recentLogs.map((log) {
+                      final isErr = log.toLowerCase().contains('error') || log.toLowerCase().contains('ошибка') || log.toLowerCase().contains('fail');
+                      final isNet = log.contains('[Network]') || log.contains('[TUN]');
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 1.5),
+                        child: Text(
+                          log,
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 9.5,
+                            color: isErr
+                                ? AppColors.error
+                                : (isNet ? AppColors.warning : AppColors.textSecondary),
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    }).toList(),
+                  ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Записей в буфере: ${VpnService.logHistory.length}',
+                style: const TextStyle(color: AppColors.textMuted, fontSize: 9.5, fontFamily: 'monospace'),
+              ),
+              InkWell(
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: VpnService.logHistory.join('\n')));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Все логи скопированы в буфер обмена'),
+                      backgroundColor: AppColors.cyberCyan,
+                    ),
+                  );
+                },
+                child: const Row(
+                  children: [
+                    Icon(Icons.copy_rounded, color: AppColors.cyberCyan, size: 12),
+                    SizedBox(width: 4),
+                    Text(
+                      'СКОПИРОВАТЬ',
+                      style: TextStyle(color: AppColors.cyberCyan, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
