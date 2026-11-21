@@ -1,0 +1,53 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "linkpc (Debug)",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "debug"
+    },
+    {
+      "name": "linkpc (Profile Mode)",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "profile"
+    },
+    {
+      "name": "linkpc (Release Mode)",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "release"
+    },
+    {
+      "name": "linkpc: macOS",
+      "request": "launch",
+      "type": "dart",
+      "deviceId": "macos"
+    },
+    {
+      "name": "linkpc: Android",
+      "request": "launch",
+      "type": "dart",
+      "deviceId": "android"
+    },
+    {
+      "name": "linkpc: iOS Simulator",
+      "request": "launch",
+      "type": "dart",
+      "deviceId": "ios"
+    },
+    {
+      "name": "linkpc: Windows",
+      "request": "launch",
+      "type": "dart",
+      "deviceId": "windows"
+    },
+    {
+      "name": "linkpc: Linux",
+      "request": "launch",
+      "type": "dart",
+      "deviceId": "linux"
+    }
+  ]
+}

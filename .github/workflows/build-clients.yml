@@ -1,9 +1,6 @@
-name: Build & Release linkpc Clients
+name: Build Clients (Artifacts & CI)
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       target:

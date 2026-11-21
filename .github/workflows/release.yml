@@ -1,0 +1,380 @@
+name: Release & Publish linkpc Clients
+
+on:
+  push:
+    tags:
+      - 'v*'
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Тег версии для релиза (например v1.0.14). Если пусто, берётся из pubspec.yaml'
+        required: false
+        default: ''
+        type: string
+      release_name:
+        description: 'Название релиза (например Release v1.0.14)'
+        required: false
+        default: ''
+        type: string
+      generate_notes:
+        description: 'Автоматически сгенерировать описание изменений (Release Notes)'
+        required: false
+        default: true
+        type: boolean
+      draft:
+        description: 'Создать как черновик (Draft release)'
+        required: false
+        default: false
+        type: boolean
+      prerelease:
+        description: 'Пометить как предрелиз (Pre-release)'
+        required: false
+        default: false
+        type: boolean
+      target:
+        description: 'Платформа для сборки'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - windows
+          - android
+          - macos
+          - linux
+          - ios
+
+permissions:
+  contents: write
+
+jobs:
+  # ==========================================
+  # PREPARE / CREATE RELEASE
+  # ==========================================
+  prepare-release:
+    name: Prepare GitHub Release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve_tag.outputs.tag }}
+      release_name: ${{ steps.resolve_tag.outputs.release_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve Release Tag & Name
+        id: resolve_tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          elif [ "${{ github.event_name }}" = "push" ] && [ -n "${{ github.ref_name }}" ]; then
+            TAG="${{ github.ref_name }}"
+          elif [ -n "${{ inputs.tag_name }}" ]; then
+            TAG="${{ inputs.tag_name }}"
+          else
+            VERSION=$(grep '^version:' pubspec.yaml | head -n 1 | awk '{print $2}' | cut -d'+' -f1 | tr -d ' ')
+            TAG="v${VERSION}"
+          fi
+
+          if [ -n "${{ inputs.release_name }}" ]; then
+            REL_NAME="${{ inputs.release_name }}"
+          else
+            REL_NAME="Release ${TAG}"
+          fi
+
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "release_name=${REL_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Using Tag: ${TAG}, Name: ${REL_NAME}"
+
+      - name: Create or Update GitHub Release Entry
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.resolve_tag.outputs.tag }}
+          name: ${{ steps.resolve_tag.outputs.release_name }}
+          generate_release_notes: ${{ github.event_name == 'workflow_dispatch' && inputs.generate_notes || true }}
+          draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
+          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
+
+  # ==========================================
+  # WINDOWS BUILD (~1.5 - 2 minutes)
+  # ==========================================
+  build-windows:
+    name: Build Windows Client
+    needs: prepare-release
+    if: inputs.target == 'all' || inputs.target == 'windows' || github.event_name != 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+          cache-key: 'flutter-:os:-:channel:-:version:'
+
+      - name: Enable Windows Desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows Executable
+        run: flutter build windows --release
+
+      - name: Bundle sing-box core and wintun
+        run: |
+          try {
+            Invoke-WebRequest -Uri "https://vless.linkpc.net/downloads/sing-box.exe" -OutFile "build\windows\x64\runner\Release\sing-box.exe"
+          } catch {
+            curl.exe -L -o sb.zip "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-windows-amd64.zip"
+            Expand-Archive -Path sb.zip -DestinationPath sb_t
+            Get-ChildItem -Path sb_t -Recurse -Filter "sing-box.exe" | Copy-Item -Destination "build\windows\x64\runner\Release\"
+          }
+          try {
+            Invoke-WebRequest -Uri "https://vless.linkpc.net/downloads/wintun.dll" -OutFile "build\windows\x64\runner\Release\wintun.dll"
+          } catch {
+            curl.exe -L -o wt.zip "https://www.wintun.net/builds/wintun-0.14.1.zip"
+            Expand-Archive -Path wt.zip -DestinationPath wt_t
+            Copy-Item "wt_t\wintun\bin\amd64\wintun.dll" -Destination "build\windows\x64\runner\Release\"
+          }
+
+      - name: Package Windows Zip
+        run: |
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath linkpc-windows-x64.zip
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkpc-windows
+          path: linkpc-windows-x64.zip
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          files: linkpc-windows-x64.zip
+
+  # ==========================================
+  # ANDROID BUILD (~1.5 - 2 minutes)
+  # ==========================================
+  build-android:
+    name: Build Android APK
+    needs: prepare-release
+    if: inputs.target == 'all' || inputs.target == 'android' || github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle Cache
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+          cache-key: 'flutter-:os:-:channel:-:version:'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Bundle libbox.aar core
+        run: |
+          mkdir -p android/app/libs
+          echo "Downloading sing-box libbox.aar core..."
+          curl -L -o android/app/libs/libbox.aar "https://vless.linkpc.net/downloads/libbox.aar" || \
+          curl -L -o android/app/libs/libbox.aar "https://github.com/singbox-android/libbox/releases/download/1.14.4/libbox.aar"
+
+      - name: Fast Build Android APK (arm64-v8a)
+        run: |
+          flutter build apk --release --android-skip-build-dependency-validation
+          mkdir -p output
+          # 64-bit ARM APK only (99.9% of modern phones, ~35MB)
+          cp build/app/outputs/flutter-apk/app-release.apk output/linkpc-android.apk
+          cp build/app/outputs/flutter-apk/app-release.apk output/linkpc-android-arm64.apk
+
+      - name: Upload Android Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkpc-android
+          path: output/*.apk
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          files: output/*.apk
+
+  # ==========================================
+  # MACOS BUILD
+  # ==========================================
+  build-macos:
+    name: Build macOS Application
+    needs: prepare-release
+    if: inputs.target == 'all' || inputs.target == 'macos' || github.event_name != 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+          cache-key: 'flutter-:os:-:channel:-:version:'
+
+      - name: Enable macOS Desktop
+        run: flutter config --enable-macos-desktop
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build macOS (.app)
+        run: |
+          flutter build macos --release
+          
+          # Bundle universal sing-box core into linkpc.app
+          echo "Downloading sing-box binaries for arm64 and amd64..."
+          curl -L -o sb_arm64.tar.gz "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-darwin-arm64.tar.gz"
+          curl -L -o sb_amd64.tar.gz "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-darwin-amd64.tar.gz"
+          mkdir -p sb_arm sb_intel
+          tar -xzf sb_arm64.tar.gz -C sb_arm
+          tar -xzf sb_amd64.tar.gz -C sb_intel
+          
+          DEST="build/macos/Build/Products/Release/linkpc.app/Contents/MacOS/sing-box"
+          echo "Creating universal binary with lipo..."
+          lipo -create -output "$DEST" sb_arm/*/sing-box sb_intel/*/sing-box
+          chmod +x "$DEST"
+          
+          # Sign sing-box binary, then sign the entire bundle ad-hoc
+          codesign --force --sign - "$DEST"
+          codesign --force --deep --sign - build/macos/Build/Products/Release/linkpc.app || true
+          
+          cd build/macos/Build/Products/Release
+          zip -r -y ../../../../../linkpc-macos.zip linkpc.app
+          cd ../../../../..
+
+      - name: Upload macOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkpc-macos
+          path: linkpc-macos.zip
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          files: linkpc-macos.zip
+
+  # ==========================================
+  # IOS BUILD (Unsigned IPA for AltStore / Sideloadly / TrollStore)
+  # ==========================================
+  build-ios:
+    name: Build iOS IPA
+    needs: prepare-release
+    if: inputs.target == 'all' || inputs.target == 'ios' || github.event_name != 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+          cache-key: 'flutter-:os:-:channel:-:version:'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build iOS App (unsigned)
+        run: |
+          flutter build ios --release --no-codesign
+          mkdir -p build/ios/iphoneos/Payload
+          cp -r build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/
+          cd build/ios/iphoneos
+          zip -r -y ../../../linkpc-ios.ipa Payload
+          cd ../../..
+
+      - name: Upload iOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkpc-ios
+          path: linkpc-ios.ipa
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          files: linkpc-ios.ipa
+
+  # ==========================================
+  # LINUX BUILD
+  # ==========================================
+  build-linux:
+    name: Build Linux Client
+    needs: prepare-release
+    if: inputs.target == 'all' || inputs.target == 'linux' || github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+          cache-key: 'flutter-:os:-:channel:-:version:'
+
+      - name: Enable Linux Desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Linux
+        run: |
+          flutter build linux --release
+          curl -L -o sb_linux.tar.gz "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64.tar.gz"
+          mkdir -p sb_l
+          tar -xzf sb_linux.tar.gz -C sb_l
+          cp sb_l/*/sing-box build/linux/x64/release/bundle/sing-box
+          chmod +x build/linux/x64/release/bundle/sing-box
+
+      - name: Package Linux tar.gz
+        run: |
+          tar -czvf linkpc-linux-x64.tar.gz -C build/linux/x64/release/bundle .
+
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkpc-linux
+          path: linkpc-linux-x64.tar.gz
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          files: linkpc-linux-x64.tar.gz

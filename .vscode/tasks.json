@@ -1,0 +1,67 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Flutter: Run Debug",
+      "type": "shell",
+      "command": "flutter run",
+      "problemMatcher": ["$dart-flutter"]
+    },
+    {
+      "label": "Flutter: Build Android APK (Release)",
+      "type": "shell",
+      "command": "flutter build apk --release --android-skip-build-dependency-validation",
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "problemMatcher": ["$dart-flutter"]
+    },
+    {
+      "label": "Flutter: Build macOS App (Release)",
+      "type": "shell",
+      "command": "flutter build macos --release",
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "problemMatcher": ["$dart-flutter"]
+    },
+    {
+      "label": "Flutter: Build Windows (Release)",
+      "type": "shell",
+      "command": "flutter build windows --release",
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "problemMatcher": ["$dart-flutter"]
+    },
+    {
+      "label": "Flutter: Build Linux (Release)",
+      "type": "shell",
+      "command": "flutter build linux --release",
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "problemMatcher": ["$dart-flutter"]
+    },
+    {
+      "label": "Flutter: Run Tests",
+      "type": "shell",
+      "command": "flutter test",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": ["$dart-flutter"]
+    },
+    {
+      "label": "Git: Create & Push Release Tag",
+      "type": "shell",
+      "command": "echo 'Enter tag name (e.g. v1.0.14):' && read tag && git tag -a \"$tag\" -m \"Release $tag\" && git push origin \"$tag\"",
+      "problemMatcher": []
+    }
+  ]
+}

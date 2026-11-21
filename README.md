@@ -43,23 +43,32 @@
 
 ---
 
-## 🚀 Сборка через GitHub Actions
+## 🚀 Сборка и релизы через GitHub Actions
 
-В репозиторий встроен полностью автоматический пайплайн `.github/workflows/build-clients.yml`:
+В репозиторий встроены автоматические пайплайны GitHub Actions:
 
-1. При пуше тега версии (например `v1.0.0`) или при ручном запуске в табе **Actions**:
-2. Автоматически собираются:
-   - `linkpc-android-arm64-v8a.apk`
-   - `linkpc-android-universal.apk`
-   - `linkpc-windows-x64.zip`
-   - `linkpc-macos.zip`
-   - `linkpc-linux-x64.tar.gz`
-3. Создается GitHub Release со всеми готовыми файлами для загрузки.
+- **`.github/workflows/release.yml`** — Полный пайплайн релиза и публикации:
+  1. Автоматически срабатывает при пуше тега версии (`git push origin v1.0.14`), публикации релиза через вкладку **Releases** на GitHub или при ручном запуске в табе **Actions** (с выбором версии, генерацией Release Notes и флагами draft/prerelease).
+  2. Создает GitHub Release с автоматически сформированным списком изменений (Release Notes).
+  3. Собирает и прикрепляет к релизу готовые дистрибутивы для всех платформ:
+     - Android: `linkpc-android.apk` (ARM64-v8a)
+     - Windows: `linkpc-windows-x64.zip` (со встроенным `sing-box.exe` и `wintun.dll`)
+     - macOS: `linkpc-macos.zip` (Universal binary Intel + Apple Silicon)
+     - iOS: `linkpc-ios.ipa` (unsigned для AltStore / Sideloadly / TrollStore)
+     - Linux: `linkpc-linux-x64.tar.gz` (со встроенным `sing-box`)
+
+- **`.github/workflows/build-clients.yml`** — Ручная сборка артефактов без публикации релиза (для тестирования).
 
 ---
 
 ## 💻 Локальная разработка
 
+### Запуск через VS Code / Cursor / IDE
+В проект добавлены готовые конфигурации:
+- **`.vscode/launch.json`**: запуск и отладка приложения (F5 / Run & Debug) в режимах Debug, Profile, Release, а также быстрый выбор целевой платформы (macOS, Android, Windows, Linux, iOS).
+- **`.vscode/tasks.json`**: быстрые задачи сборки и создания релизного тега Git.
+
+### Запуск через терминал
 ```bash
 # Клонировать репозиторий
 git clone https://github.com/<ваш-аккаунт>/linkpc.git
