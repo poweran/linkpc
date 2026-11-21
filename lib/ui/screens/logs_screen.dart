@@ -22,7 +22,7 @@ class _LogsScreenState extends State<LogsScreen> {
   @override
   void initState() {
     super.initState();
-    _logs.add('--- Консоль диагностики linkpc [v1.0.13] ---');
+    _logs.add('--- Консоль диагностики linkpc [v1.0.16] ---');
     _logs.add('--- Ядро: sing-box (libbox), XHTTP Transport ---');
     _logs.addAll(VpnService.logHistory);
 
