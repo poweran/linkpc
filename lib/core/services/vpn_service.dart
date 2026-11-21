@@ -150,6 +150,8 @@ class VpnService {
       // Ensure DNS servers do not have invalid detour: direct (causes fatal error in sing-box)
       // and replace type: local with robust udp DNS (77.88.8.8) on mobile
       final dns = (map['dns'] as Map<String, dynamic>?) ?? {};
+      dns['strategy'] = 'ipv4_only';
+      dns['independent_cache'] = true;
       final dnsServers = (dns['servers'] as List<dynamic>?) ?? [];
       for (final srv in dnsServers) {
         if (srv is Map) {
@@ -190,6 +192,26 @@ class VpnService {
         rules.insert(insertIdx + 1, {
           "port": 53,
           "action": "hijack-dns"
+        });
+      }
+
+      // Reject Private DNS (port 853 / DoT) so Android doesn't hang on validation probe
+      bool hasBlockDot = rules.any((r) => r is Map && r['port'] == 853);
+      if (!hasBlockDot) {
+        final lastDnsIdx = rules.lastIndexWhere((r) => r is Map && (r['action'] == 'hijack-dns' || r['protocol'] == 'dns' || r['port'] == 53));
+        final insertIdx = lastDnsIdx >= 0 ? lastDnsIdx + 1 : rules.length;
+        rules.insert(insertIdx, {
+          "port": 853,
+          "outbound": "block"
+        });
+      }
+
+      // Ensure direct DNS IPs bypass the tunnel directly
+      bool hasDirectDnsRule = rules.any((r) => r is Map && r['ip_cidr'] is List && (r['ip_cidr'] as List).contains('77.88.8.8/32'));
+      if (!hasDirectDnsRule) {
+        rules.add({
+          "ip_cidr": ["77.88.8.8/32", "77.88.8.1/32"],
+          "outbound": "direct"
         });
       }
 

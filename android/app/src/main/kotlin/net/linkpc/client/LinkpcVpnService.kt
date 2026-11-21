@@ -138,11 +138,24 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             }
 
             connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            val currentNet = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                connectivityManager?.activeNetwork
+            } else null
+            val initialNet = currentNet ?: findUnderlyingNetwork()
+            if (initialNet != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                try {
+                    setUnderlyingNetworks(arrayOf(initialNet))
+                    Log.i(TAG, "Early underlying network set: $initialNet")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Initial setUnderlyingNetworks failed", e)
+                }
+            }
+
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    // Only listen to physical networks that have Internet and are NOT a VPN
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    connectivityManager?.registerDefaultNetworkCallback(networkCallback)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                     val request = NetworkRequest.Builder()
-                        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                         .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                         .build()
                     connectivityManager?.registerNetworkCallback(request, networkCallback)
@@ -305,29 +318,29 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         }
 
         if (options.autoRoute) {
-            var dnsAdded = false
             try {
                 val dnsIt = options.dnsServerAddress
                 while (dnsIt != null && dnsIt.hasNext()) {
                     val dns = dnsIt.next()
                     if (!dns.isNullOrBlank()) {
                         builder.addDnsServer(dns)
-                        dnsAdded = true
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Error configuring DNS server", e)
+                Log.w(TAG, "Error configuring DNS server from options", e)
             }
 
-            if (!dnsAdded) {
-                try {
-                    builder.addDnsServer("1.1.1.1")
-                    builder.addDnsServer("8.8.8.8")
-                    builder.addDnsServer("77.88.8.8")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Fallback DNS configuration failed", e)
-                }
-            }
+            // Always add virtual gateway DNS
+            try {
+                builder.addDnsServer("172.19.0.2")
+            } catch (_: Exception) {}
+
+            // Also configure well-known DNS servers (all intercepted by hijack-dns)
+            try {
+                builder.addDnsServer("1.1.1.1")
+                builder.addDnsServer("8.8.8.8")
+                builder.addDnsServer("77.88.8.8")
+            } catch (_: Exception) {}
 
             val addedRoutes = HashSet<String>()
             var hasR4 = false
@@ -436,10 +449,9 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     }
 
     private fun updateDefaultInterface(specifiedNetwork: Network? = null) {
-        val listener = defaultInterfaceListener ?: return
         try {
             val cm = connectivityManager ?: (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager) ?: return
-            val targetNet = specifiedNetwork ?: findUnderlyingNetwork()
+            val targetNet = specifiedNetwork ?: (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) cm.activeNetwork else null) ?: findUnderlyingNetwork()
 
             if (targetNet == null) {
                 Log.w(TAG, "No underlying physical network found")
@@ -452,6 +464,17 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 return
             }
 
+            // Immediately set Android VpnService underlying network to avoid routing drops
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                try {
+                    setUnderlyingNetworks(arrayOf(targetNet))
+                } catch (e: Exception) {
+                    Log.w(TAG, "setUnderlyingNetworks failed", e)
+                }
+            }
+
+            val listener = defaultInterfaceListener ?: return
+
             val lp = cm.getLinkProperties(targetNet)
             val ifName = lp?.interfaceName ?: ""
             if (ifName.isBlank() || ifName.startsWith("tun") || ifName.startsWith("ppp")) {
@@ -460,9 +483,10 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             }
 
             val ifIdx = try {
-                NetworkInterface.getByName(ifName)?.index ?: -1
+                val idx = NetworkInterface.getByName(ifName)?.index ?: 0
+                if (idx > 0) idx else 0
             } catch (_: Exception) {
-                -1
+                0
             }
 
             val isExpensive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -475,11 +499,6 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
             Log.i(TAG, "Setting underlying default interface: $ifName (index=$ifIdx, expensive=$isExpensive)")
             listener.updateDefaultInterface(ifName, ifIdx, isExpensive, isConstrained)
-
-            // Inform Android VpnService of the underlying physical network to prevent routing loops
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                setUnderlyingNetworks(arrayOf(targetNet))
-            }
         } catch (e: Exception) {
             Log.w(TAG, "updateDefaultInterface error", e)
         }
