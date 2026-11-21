@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import '../constants/app_constants.dart';
 import '../models/traffic_stats.dart';
 import '../models/vpn_state.dart';
+import 'storage_service.dart';
 
 class VpnService {
   static const MethodChannel _channel = MethodChannel(AppConstants.tunnelChannel);
@@ -161,7 +162,7 @@ class VpnService {
   }
 
   /// Injects inbounds (mixed proxy 2080 + tun) and routing rules into sing-box config
-  static String prepareConfig(String rawConfig, {required String routingMode}) {
+  static String prepareConfig(String rawConfig, {required String routingMode, bool enableTun = true}) {
     try {
       final map = json.decode(rawConfig) as Map<String, dynamic>;
 
@@ -183,13 +184,13 @@ class VpnService {
         }
       ];
 
-      // On mobile (Android / iOS) inject tun interface
-      if (Platform.isAndroid || Platform.isIOS) {
+      // Inject TUN inbound on Mobile (Android / iOS) and macOS (when enableTun is active)
+      if (Platform.isAndroid || Platform.isIOS || (Platform.isMacOS && enableTun)) {
         inbounds.add({
           "type": "tun",
           "tag": "tun-in",
           "address": ["172.19.0.1/30"],
-          "mtu": 1500,
+          "mtu": Platform.isMacOS ? 9000 : 1500,
           "auto_route": true,
           "strict_route": false,
           "stack": "mixed",
@@ -268,6 +269,15 @@ class VpnService {
         });
       }
 
+      // Ensure private LAN ranges bypass the tunnel directly
+      bool hasPrivateRule = rules.any((r) => r is Map && r['ip_is_private'] == true);
+      if (!hasPrivateRule) {
+        rules.add({
+          "ip_is_private": true,
+          "outbound": "direct"
+        });
+      }
+
       // Normalize outbounds transport path for sing-box httpupgrade
       final outbounds = (map['outbounds'] as List<dynamic>?) ?? [];
       for (final ob in outbounds) {
@@ -311,6 +321,9 @@ class VpnService {
       if (!Platform.isWindows) {
         try {
           await Process.run('chmod', ['+x', adjacent.path]);
+          if (Platform.isMacOS) {
+            await Process.run('xattr', ['-c', adjacent.path]);
+          }
         } catch (_) {}
       }
       return adjacent.path;
@@ -325,6 +338,9 @@ class VpnService {
         if (!Platform.isWindows) {
           try {
             await Process.run('chmod', ['+x', localBinary.path]);
+            if (Platform.isMacOS) {
+              await Process.run('xattr', ['-c', localBinary.path]);
+            }
           } catch (_) {}
         }
         return localBinary.path;
@@ -359,6 +375,11 @@ class VpnService {
         await localBinary.writeAsBytes(res.bodyBytes);
         if (!Platform.isWindows) {
           await Process.run('chmod', ['+x', localBinary.path]);
+          if (Platform.isMacOS) {
+            try {
+              await Process.run('xattr', ['-c', localBinary.path]);
+            } catch (_) {}
+          }
         }
         _log('Ядро sing-box успешно загружено и подготовлено.');
         return localBinary.path;
@@ -379,11 +400,18 @@ class VpnService {
     _setStatus(VpnStatus.connecting);
     _log('Инициализация защищенного шлюза linkpc...');
 
-    final processedConfig = prepareConfig(rawConfig, routingMode: routingMode);
+    final desktopMode = StorageService.getDesktopMode();
+    final isTun = desktopMode == AppConstants.desktopModeTun;
+    final processedConfig = prepareConfig(rawConfig, routingMode: routingMode, enableTun: isTun);
 
     // Desktop handling: Windows, macOS, Linux
     if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
-      await _startDesktopTunnel(processedConfig);
+      await _startDesktopTunnel(
+        processedConfig,
+        rawConfig: rawConfig,
+        routingMode: routingMode,
+        isTun: isTun,
+      );
       return;
     }
 
@@ -407,10 +435,15 @@ class VpnService {
   }
 
   /// Desktop Tunnel Runner
-  static Future<void> _startDesktopTunnel(String configJson) async {
+  static Future<void> _startDesktopTunnel(
+    String configJson, {
+    required String rawConfig,
+    required String routingMode,
+    required bool isTun,
+  }) async {
     final binaryPath = await _findOrDownloadSingBox();
     if (binaryPath == null) {
-      _log('Ошибка: sing-box не найден. Поместите sing-box.exe рядом с linkpc.exe.');
+      _log('Ошибка: sing-box не найден. Поместите sing-box рядом с linkpc.');
       _setStatus(VpnStatus.error);
       return;
     }
@@ -423,19 +456,176 @@ class VpnService {
         await configFile.parent.create(recursive: true);
       }
       await configFile.writeAsString(configJson);
+      if (!Platform.isWindows) {
+        try {
+          await Process.run('chmod', ['644', configFile.path]);
+        } catch (_) {}
+      }
     } catch (e) {
       _log('Ошибка записи файла конфигурации: $e');
       _setStatus(VpnStatus.error);
       return;
     }
 
+    // On macOS in TUN mode, run with elevated privileges via authorized helper (like Hiddify)
+    if (Platform.isMacOS && isTun) {
+      await _startMacOsTunTunnel(
+        binaryPath,
+        configFile.path,
+        rawConfig: rawConfig,
+        routingMode: routingMode,
+      );
+      return;
+    }
+
+    // Standard desktop execution (Windows, Linux, or macOS System Proxy mode)
+    await _startDesktopStandardTunnel(
+      binaryPath,
+      configFile.path,
+      isMacProxy: Platform.isMacOS && !isTun,
+    );
+  }
+
+  /// macOS TUN Runner (routes entire system traffic like Hiddify)
+  static Future<void> _startMacOsTunTunnel(
+    String binaryPath,
+    String configFilePath, {
+    required String rawConfig,
+    required String routingMode,
+  }) async {
+    const helperBinary = AppConstants.macOsHelperBinary;
+
+    // 1. Terminate any previous orphaned instance
+    try {
+      await Process.run('sudo', ['-n', '/usr/bin/pkill', '-f', 'linkpc-sing-box']);
+    } catch (_) {}
+
+    // 2. Check if helper binary exists and has passwordless sudo authorization
+    bool isAuthorized = false;
+    if (File(helperBinary).existsSync()) {
+      try {
+        final check = await Process.run('sudo', ['-n', helperBinary, 'version']);
+        if (check.exitCode == 0) {
+          isAuthorized = true;
+        }
+      } catch (_) {}
+    }
+
+    // 3. If not authorized, ask the user once via native macOS administrator prompt
+    if (!isAuthorized) {
+      _log('Запрос прав администратора macOS для включения VPN на всей системе (TUN режим, как в Hiddify)...');
+      final ok = await _setupMacOsTunHelper(binaryPath);
+      if (ok) {
+        isAuthorized = true;
+      } else {
+        _log('⚠️ Права администратора не предоставлены. Запуск в режиме системного прокси (только браузер)...');
+        // Fallback to proxy mode
+        final proxyConfig = prepareConfig(rawConfig, routingMode: routingMode, enableTun: false);
+        final tempDir = await getTemporaryDirectory();
+        final configFile = File('${tempDir.path}${Platform.pathSeparator}linkpc_config.json');
+        await configFile.writeAsString(proxyConfig);
+        await _startDesktopStandardTunnel(binaryPath, configFile.path, isMacProxy: true);
+        return;
+      }
+    }
+
+    _log('Запуск ядра sing-box в режиме TUN (системный шлюз)...');
+
+    try {
+      _desktopProcess = await Process.start(
+        'sudo',
+        ['-n', helperBinary, 'run', '-c', configFilePath],
+        workingDirectory: '/tmp',
+        mode: ProcessStartMode.normal,
+      );
+
+      _desktopProcess!.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        _log('[core] $line');
+      });
+
+      _desktopProcess!.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        _log('[core] $line');
+      });
+
+      bool processExited = false;
+      int? earlyExitCode;
+      _desktopProcess!.exitCode.then((code) {
+        processExited = true;
+        earlyExitCode = code;
+        _log('Ядро sing-box завершило работу (код $code)');
+        if (_currentStatus == VpnStatus.connected) {
+          stopTunnel();
+        }
+      });
+
+      // Wait 800ms for sing-box to initialize utun and install routing tables
+      await Future.delayed(const Duration(milliseconds: 800));
+
+      if (processExited) {
+        _log('Ошибка: ядро sing-box завершилось с кодом $earlyExitCode. Подключение прервано.');
+        _setStatus(VpnStatus.error);
+        return;
+      }
+
+      // Ensure standard macOS web proxy is turned off so it doesn't conflict with TUN routing
+      await _setMacOsProxy(enabled: false);
+
+      _log('Шлюз linkpc активен (TUN режим). Весь системный трафик (все программы, терминал, DNS) защищен.');
+      _setStatus(VpnStatus.connected);
+    } catch (e) {
+      _log('Ошибка запуска процесса TUN: $e');
+      _setStatus(VpnStatus.error);
+    }
+  }
+
+  /// Authorizes sing-box to run with root permissions for TUN mode via macOS osascript
+  static Future<bool> _setupMacOsTunHelper(String sourceBinary) async {
+    try {
+      const helper = AppConstants.macOsHelperBinary;
+      final cmd = 'mkdir -p /usr/local/bin /etc/sudoers.d && '
+          'cp -f "$sourceBinary" "$helper" && '
+          'chmod 755 "$helper" && '
+          '(xattr -c "$helper" 2>/dev/null || true) && '
+          'printf "ALL ALL=(ALL) NOPASSWD: $helper, /usr/bin/pkill\\n" > /etc/sudoers.d/linkpc && '
+          'chmod 0440 /etc/sudoers.d/linkpc';
+
+      final res = await Process.run('osascript', [
+        '-e',
+        'do shell script "$cmd" with administrator privileges',
+      ]);
+
+      if (res.exitCode == 0) {
+        _log('Системный TUN модуль linkpc успешно авторизован.');
+        return true;
+      } else {
+        _log('Авторизация TUN отклонена: ${res.stderr}');
+        return false;
+      }
+    } catch (e) {
+      _log('Ошибка авторизации TUN: $e');
+      return false;
+    }
+  }
+
+  /// Standard desktop process runner (Windows, Linux, or macOS System Proxy mode)
+  static Future<void> _startDesktopStandardTunnel(
+    String binaryPath,
+    String configFilePath, {
+    bool isMacProxy = false,
+  }) async {
     _log('Запуск sing-box ($binaryPath)...');
 
     try {
       final workDir = File(binaryPath).parent.path;
       _desktopProcess = await Process.start(
         binaryPath,
-        ['run', '-c', configFile.path],
+        ['run', '-c', configFilePath],
         workingDirectory: workDir,
         mode: ProcessStartMode.normal,
       );
@@ -477,7 +667,7 @@ class VpnService {
       if (Platform.isWindows) {
         _log('Применение системного прокси Windows (127.0.0.1:2080)...');
         await _setWindowsProxy(enabled: true, proxy: '127.0.0.1:2080');
-      } else if (Platform.isMacOS) {
+      } else if (isMacProxy) {
         _log('Применение системного прокси macOS (127.0.0.1:2080)...');
         await _setMacOsProxy(enabled: true, host: '127.0.0.1', port: 2080);
       }
@@ -500,6 +690,9 @@ class VpnService {
     if (Platform.isWindows) {
       await _setWindowsProxy(enabled: false);
     } else if (Platform.isMacOS) {
+      try {
+        await Process.run('sudo', ['-n', '/usr/bin/pkill', '-f', 'linkpc-sing-box']);
+      } catch (_) {}
       await _setMacOsProxy(enabled: false);
     }
 

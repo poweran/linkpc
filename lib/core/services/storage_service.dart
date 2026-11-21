@@ -40,6 +40,14 @@ class StorageService {
     await _prefs?.setString(AppConstants.prefCachedConfig, jsonConfig);
   }
 
+  static String getDesktopMode() {
+    return _prefs?.getString(AppConstants.prefDesktopMode) ?? AppConstants.desktopModeTun;
+  }
+
+  static Future<void> setDesktopMode(String mode) async {
+    await _prefs?.setString(AppConstants.prefDesktopMode, mode);
+  }
+
   static Future<void> clearAll() async {
     await _prefs?.clear();
   }

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_colors.dart';
@@ -16,18 +17,25 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   String _routingMode = AppConstants.routeModeSmart;
+  String _desktopMode = AppConstants.desktopModeTun;
   bool _autoConnect = false;
 
   @override
   void initState() {
     super.initState();
     _routingMode = StorageService.getRoutingMode();
+    _desktopMode = StorageService.getDesktopMode();
     _autoConnect = StorageService.getAutoConnect();
   }
 
   Future<void> _setRoutingMode(String mode) async {
     setState(() => _routingMode = mode);
     await StorageService.setRoutingMode(mode);
+  }
+
+  Future<void> _setDesktopMode(String mode) async {
+    setState(() => _desktopMode = mode);
+    await StorageService.setDesktopMode(mode);
   }
 
   Future<void> _toggleAutoConnect(bool val) async {
@@ -121,6 +129,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           const SizedBox(height: 20),
+
+          // macOS Network Mode Section
+          if (Platform.isMacOS) ...[
+            const Text(
+              'РЕЖИМ СЕТИ MACOS',
+              style: TextStyle(
+                color: AppColors.cyberCyan,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'monospace',
+                letterSpacing: 0.6,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            CyberCard(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  RadioListTile<String>(
+                    value: AppConstants.desktopModeTun,
+                    groupValue: _desktopMode,
+                    onChanged: (v) => v != null ? _setDesktopMode(v) : null,
+                    activeColor: AppColors.cyberCyan,
+                    title: const Text(
+                      'VPN (TUN) — Вся система (как в Hiddify)',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    subtitle: const Text(
+                      '100% сетевого трафика (все программы, терминал, мессенджеры, игры, DNS) направляется через защищенный VPN-адаптер. При первом подключении запрашивает подтверждение паролем администратора.',
+                      style: TextStyle(color: AppColors.textMuted, fontSize: 11, fontFamily: 'monospace'),
+                    ),
+                  ),
+                  const Divider(height: 1, color: AppColors.border),
+                  RadioListTile<String>(
+                    value: AppConstants.desktopModeProxy,
+                    groupValue: _desktopMode,
+                    onChanged: (v) => v != null ? _setDesktopMode(v) : null,
+                    activeColor: AppColors.cyberCyan,
+                    title: const Text(
+                      'Системный прокси — Только браузер',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Перенаправляет только браузеры и приложения, использующие системные настройки HTTP/SOCKS прокси. Не требует прав администратора.',
+                      style: TextStyle(color: AppColors.textMuted, fontSize: 11, fontFamily: 'monospace'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+          ],
 
           // Startup & Service Options
           const Text(

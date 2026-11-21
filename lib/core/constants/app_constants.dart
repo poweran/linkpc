@@ -22,6 +22,14 @@ class AppConstants {
   static const String prefAutoConnect = 'linkpc_auto_connect';
   static const String prefCachedConfig = 'linkpc_cached_config';
   static const String prefLastPing = 'linkpc_last_ping';
+  static const String prefDesktopMode = 'linkpc_desktop_mode';
+
+  // Desktop Network Modes
+  static const String desktopModeTun = 'tun';     // System-wide VPN (TUN, like Hiddify)
+  static const String desktopModeProxy = 'proxy'; // System Proxy (Browsers only)
+
+  // macOS Helper Paths
+  static const String macOsHelperBinary = '/usr/local/bin/linkpc-sing-box';
 
   // Routing Modes
   static const String routeModeSmart = 'smart_ru_direct'; // Bypass Russian traffic
