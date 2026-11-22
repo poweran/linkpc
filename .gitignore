@@ -81,3 +81,5 @@ migrate_working_dir/
 android/app/libs/*.aar
 android/app/libs/*.jar
 android/app/libs/
+# Widget Preview related
+.widget_preview/
