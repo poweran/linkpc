@@ -117,11 +117,8 @@ class VpnService {
         final list = await _channel.invokeMethod<List<dynamic>>('getLogs');
         if (list != null) {
           final res = list.map((e) => e.toString()).toList();
-          for (final item in res) {
-            if (!_logHistory.contains(item)) {
-              _logHistory.add(item);
-            }
-          }
+          _logHistory.clear();
+          _logHistory.addAll(res);
           return res;
         }
       } catch (e) {
@@ -155,10 +152,10 @@ class VpnService {
         ? message
         : '[${DateTime.now().toIso8601String().substring(11, 19)}] $message';
     _logHistory.add(entry);
-    if (_logHistory.length > 1000) _logHistory.removeAt(0);
+    if (_logHistory.length > 500) {
+      _logHistory.removeRange(0, _logHistory.length - 500);
+    }
     _logsController.add(entry);
-    // ignore: avoid_print
-    print(entry);
   }
 
   /// Injects inbounds (mixed proxy 2080 + tun) and routing rules into sing-box config

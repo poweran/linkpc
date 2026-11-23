@@ -17,6 +17,13 @@ object VpnEvents {
     private const val MAX_LOGS = 1500
     private var logFile: File? = null
 
+    @Volatile
+    private var isAppInForeground = true
+
+    fun setAppInForeground(inForeground: Boolean) {
+        isAppInForeground = inForeground
+    }
+
     fun initLogFile(file: File) {
         logFile = file
         try {
@@ -32,16 +39,6 @@ object VpnEvents {
     fun setEventSink(sink: EventChannel.EventSink?) {
         mainHandler.post {
             eventSink = sink
-            if (sink != null) {
-                // Replay recent logs to newly connected Flutter view
-                synchronized(logHistory) {
-                    for (entry in logHistory) {
-                        try {
-                            sink.success(mapOf("type" to "log", "message" to entry))
-                        } catch (_: Exception) {}
-                    }
-                }
-            }
         }
     }
 
@@ -69,10 +66,13 @@ object VpnEvents {
             }
         }
 
-        mainHandler.post {
-            try {
-                eventSink?.success(mapOf("type" to "log", "message" to formatted))
-            } catch (_: Exception) {}
+        // Only stream live logs to Flutter if app is active in foreground
+        if (isAppInForeground && eventSink != null) {
+            mainHandler.post {
+                try {
+                    eventSink?.success(mapOf("type" to "log", "message" to formatted))
+                } catch (_: Exception) {}
+            }
         }
     }
 
@@ -86,6 +86,7 @@ object VpnEvents {
     }
 
     fun sendTraffic(upSpeed: Long, downSpeed: Long, totalUp: Long, totalDown: Long) {
+        if (!isAppInForeground || eventSink == null) return
         mainHandler.post {
             try {
                 eventSink?.success(

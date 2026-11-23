@@ -1,7 +1,7 @@
 name: linkpc
 description: "High-speed, ultra-lightweight multiplatform client for linkpc (sing-box libbox core)"
 publish_to: 'none'
-version: 1.0.18+18
+version: 1.0.19+19
 
 environment:
   sdk: '>=3.2.0 <4.0.0'

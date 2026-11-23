@@ -57,6 +57,14 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private var commandClient: CommandClient? = null
     private var defaultInterfaceListener: InterfaceUpdateListener? = null
     private var connectivityManager: ConnectivityManager? = null
+    @Volatile
+    private var lastInterfaceName: String? = null
+    @Volatile
+    private var lastInterfaceIndex: Int = -1
+    @Volatile
+    private var lastIsExpensive: Boolean = false
+    @Volatile
+    private var lastIsConstrained: Boolean = false
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -590,13 +598,6 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 return
             }
 
-            val ifIdx = try {
-                val idx = NetworkInterface.getByName(ifName)?.index ?: 0
-                if (idx > 0) idx else (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) (targetNet.networkHandle.toInt() and 0x7FFFFFFF) else 0)
-            } catch (_: Exception) {
-                0
-            }
-
             val caps = cm.getNetworkCapabilities(targetNet)
             val isExpensive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && caps != null) {
                 !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
@@ -605,6 +606,23 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             val isConstrained = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && caps != null) {
                 !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_CONGESTED)
             } else false
+
+            val ifIdx = try {
+                val idx = NetworkInterface.getByName(ifName)?.index ?: 0
+                if (idx > 0) idx else (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) (targetNet.networkHandle.toInt() and 0x7FFFFFFF) else 0)
+            } catch (_: Exception) {
+                0
+            }
+
+            // Deduplicate: avoid freezing UI / resetting sing-box when switching apps
+            if (lastInterfaceName == ifName && lastInterfaceIndex == ifIdx &&
+                lastIsExpensive == isExpensive && lastIsConstrained == isConstrained) {
+                return
+            }
+            lastInterfaceName = ifName
+            lastInterfaceIndex = ifIdx
+            lastIsExpensive = isExpensive
+            lastIsConstrained = isConstrained
 
             VpnEvents.log("Network", "Основной физический интерфейс: $ifName (индекс=$ifIdx, лимитный=$isExpensive)")
             listener.updateDefaultInterface(ifName, ifIdx, isExpensive, isConstrained)

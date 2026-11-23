@@ -33,9 +33,8 @@ class _LogsScreenState extends State<LogsScreen> {
     _logSub = VpnService.logsStream.listen((line) {
       if (mounted) {
         setState(() {
-          if (!_logs.contains(line)) {
-            _logs.add(line);
-          }
+          _logs.add(line);
+          if (_logs.length > 1500) _logs.removeAt(0);
         });
         if (_autoScroll) {
           Future.delayed(const Duration(milliseconds: 100), () {
@@ -54,11 +53,10 @@ class _LogsScreenState extends State<LogsScreen> {
     if (mounted) {
       setState(() {
         _logFilePath = path;
-        for (final line in nativeLogs) {
-          if (!_logs.contains(line)) {
-            _logs.add(line);
-          }
-        }
+        _logs.clear();
+        _logs.add('--- Консоль диагностики linkpc [${AppConstants.displayVersion}] ---');
+        _logs.add('--- Ядро: sing-box (libbox), XHTTP Transport ---');
+        _logs.addAll(nativeLogs);
       });
       if (_autoScroll) {
         Future.delayed(const Duration(milliseconds: 150), () {

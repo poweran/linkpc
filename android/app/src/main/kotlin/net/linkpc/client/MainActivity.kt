@@ -16,6 +16,16 @@ class MainActivity: FlutterActivity() {
     private var pendingConfig: String? = null
     private var pendingResult: MethodChannel.Result? = null
 
+    override fun onResume() {
+        super.onResume()
+        VpnEvents.setAppInForeground(true)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        VpnEvents.setAppInForeground(false)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
