@@ -1,9 +1,9 @@
 class AppConstants {
   static const String appName = 'linkpc';
 
-  /// Injected at compile-time via: flutter build ... --dart-define=APP_VERSION=v1.0.19
+  /// Injected at compile-time via: flutter build ... --dart-define=APP_VERSION=v1.0.20
   /// Defaults to latest tag if not provided during build
-  static const String rawVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'v1.0.19');
+  static const String rawVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'v1.0.20');
 
   /// Clean semantic version without 'v' prefix (e.g. '1.0.17')
   static String get appVersion =>

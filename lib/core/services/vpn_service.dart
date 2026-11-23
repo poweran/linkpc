@@ -182,13 +182,14 @@ class VpnService {
       ];
 
       // Inject TUN inbound on Mobile (Android / iOS) and macOS (when enableTun is active)
-      // Must use "gvisor" stack on mobile (Android/iOS) because non-root VpnService cannot use kernel system stack
+      // Must use "gvisor" stack on mobile (Android/iOS) because non-root VpnService cannot use kernel system stack.
+      // MTU 1400 is ideal for mobile LTE/5G carriers to avoid outer packet fragmentation.
       if (Platform.isAndroid || Platform.isIOS || (Platform.isMacOS && enableTun)) {
         inbounds.add({
           "type": "tun",
           "tag": "tun-in",
-          "address": ["172.19.0.1/30", "fd00::1/126"],
-          "mtu": Platform.isMacOS ? 9000 : 1500,
+          "address": ["172.19.0.1/30"],
+          "mtu": Platform.isMacOS ? 9000 : 1400,
           "auto_route": true,
           "strict_route": false,
           "stack": "gvisor",
@@ -231,14 +232,13 @@ class VpnService {
         rules.insert(0, {"action": "sniff"});
       }
 
-      // Reject IPv6 traffic cleanly so dual-stack mobile apps (Happy Eyeballs) instantly connect via IPv4 tunnel
-      bool hasIpv6Block = rules.any((r) => r is Map && r['ip_version'] == 6);
-      if (!hasIpv6Block) {
-        rules.add({
-          "ip_version": 6,
-          "outbound": "block"
-        });
-      }
+      // Reject IPv6 traffic instantly with TCP RST instead of dropping into a blackhole,
+      // so dual-stack mobile browsers (Happy Eyeballs RFC 8305) immediately connect via IPv4 tunnel
+      rules.removeWhere((r) => r is Map && r['ip_version'] == 6);
+      rules.insert(0, {
+        "ip_version": 6,
+        "action": "reject"
+      });
 
       // Ensure DNS hijacking for TUN / transparent proxying so that DNS queries
       // entering the tunnel are resolved through sing-box's internal DNS engine

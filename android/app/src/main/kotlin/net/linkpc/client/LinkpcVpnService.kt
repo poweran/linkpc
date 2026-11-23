@@ -336,9 +336,10 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
         VpnEvents.log("TUN", "Инициализация TUN адаптера (MTU=${if (options.mtu > 0) options.mtu else 1500}, autoRoute=${options.autoRoute})...")
 
+        val mtu = if (options.mtu in 1280..1500) options.mtu else 1400
         val builder = Builder()
             .setSession("linkpc Gateway")
-            .setMtu(if (options.mtu > 0) options.mtu else 1500)
+            .setMtu(mtu)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
@@ -410,15 +411,7 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             Log.w(TAG, "Error configuring IPv6 TUN address", e)
         }
 
-        if (!hasInet6) {
-            try {
-                builder.addAddress("fd00::1", 126)
-                VpnEvents.log("TUN", "Назначен резервный IPv6 адрес: fd00::1/126")
-                hasInet6 = true
-            } catch (e: Exception) {
-                Log.w(TAG, "Резервный IPv6 адрес не назначен", e)
-            }
-        }
+
 
         if (options.autoRoute) {
             try {
