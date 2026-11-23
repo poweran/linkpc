@@ -1,6 +1,6 @@
 class AppConstants {
   static const String appName = 'linkpc';
-  static const String appVersion = '1.0.16';
+  static const String appVersion = '1.0.17';
   static const String appTagline = 'HIGH-SPEED SECURE GATEWAY';
 
   // Endpoints

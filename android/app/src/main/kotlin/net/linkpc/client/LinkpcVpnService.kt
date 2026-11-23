@@ -15,6 +15,7 @@ import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.Process
+import android.system.OsConstants
 import android.util.Log
 import io.nekohasekai.libbox.*
 import java.io.File
@@ -204,6 +205,13 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                         while (messageList.hasNext()) {
                             val entry = messageList.next()
                             val msg = entry?.message ?: ""
+                            val level = entry?.level ?: 0
+                            // In libbox: 0 = trace, 1 = debug, 2 = info, 3 = warn, 4 = error, 5 = fatal, 6 = panic
+                            // Filter out trace (0) and debug (1) noise (router pre-match, sniffing, DNS strategy)
+                            // to avoid flooding Android Looper & Flutter UI event queues
+                            if (level < 2 && !msg.contains("ERROR") && !msg.contains("WARN")) {
+                                continue
+                            }
                             if (msg.isNotBlank()) {
                                 VpnEvents.log("box", msg)
                             }
@@ -327,6 +335,10 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
         }
+
+        try {
+            builder.allowBypass()
+        } catch (_: Exception) {}
 
         // Exclude linkpc itself to prevent routing loops
         try {
@@ -530,15 +542,25 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private fun updateDefaultInterface(specifiedNetwork: Network? = null) {
         try {
             val cm = connectivityManager ?: (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager) ?: return
-            val targetNet = specifiedNetwork ?: (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) cm.activeNetwork else null) ?: findUnderlyingNetwork()
+
+            fun isValidPhysical(net: Network?): Boolean {
+                if (net == null) return false
+                val c = cm.getNetworkCapabilities(net) ?: return false
+                return !c.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                       c.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                       c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            }
+
+            val targetNet = when {
+                isValidPhysical(specifiedNetwork) -> specifiedNetwork
+                isValidPhysical(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) cm.activeNetwork else null) ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) cm.activeNetwork else null
+                else -> findUnderlyingNetwork()
+            }
 
             if (targetNet == null) {
                 VpnEvents.log("Network", "Физическая сеть не обнаружена")
-                return
-            }
-
-            val caps = cm.getNetworkCapabilities(targetNet)
-            if (caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) {
+                defaultInterfaceListener?.updateDefaultInterface("", -1, false, false)
                 return
             }
 
@@ -561,17 +583,18 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
             val ifIdx = try {
                 val idx = NetworkInterface.getByName(ifName)?.index ?: 0
-                if (idx > 0) idx else 0
+                if (idx > 0) idx else (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) (targetNet.networkHandle.toInt() and 0x7FFFFFFF) else 0)
             } catch (_: Exception) {
                 0
             }
 
-            val isExpensive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
+            val caps = cm.getNetworkCapabilities(targetNet)
+            val isExpensive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && caps != null) {
+                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
             } else false
 
-            val isConstrained = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_CONGESTED) == false
+            val isConstrained = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && caps != null) {
+                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_CONGESTED)
             } else false
 
             VpnEvents.log("Network", "Основной физический интерфейс: $ifName (индекс=$ifIdx, лимитный=$isExpensive)")
@@ -584,34 +607,133 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     override fun getInterfaces(): NetworkInterfaceIterator {
         val list = mutableListOf<io.nekohasekai.libbox.NetworkInterface>()
         try {
-            val nifs = NetworkInterface.getNetworkInterfaces()
-            while (nifs != null && nifs.hasMoreElements()) {
-                val nif = nifs.nextElement()
-                if (nif == null || !nif.isUp) continue
-                val name = nif.name ?: ""
-                // Exclude loopback and virtual VPN tun interfaces from interface list
-                if (name == "lo" || name.startsWith("tun") || name.startsWith("dummy") || name.startsWith("p2p")) continue
-
-                val boxIf = io.nekohasekai.libbox.NetworkInterface()
-                boxIf.index = nif.index
-                boxIf.name = name
-                try { boxIf.mtu = if (nif.mtu > 0) nif.mtu else 1500 } catch (_: Exception) {}
-                val addrs = mutableListOf<String>()
-                val interfaceAddresses = try { nif.interfaceAddresses } catch (_: Exception) { null }
-                if (interfaceAddresses != null) {
-                    for (ia in interfaceAddresses) {
-                        try {
-                            val addr = ia?.address ?: continue
-                            val rawHost = addr.hostAddress ?: continue
-                            val host = rawHost.substringBefore('%')
-                            val prefix = ia.networkPrefixLength.toInt()
-                            val validPrefix = if (prefix > 0) prefix else (if (addr is java.net.Inet6Address) 128 else 32)
-                            addrs.add("$host/$validPrefix")
-                        } catch (_: Exception) {}
-                    }
+            val cm = connectivityManager ?: (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)
+            val networks = cm?.allNetworks
+            val javaInterfaces = try {
+                val nifs = NetworkInterface.getNetworkInterfaces()
+                val res = mutableListOf<NetworkInterface>()
+                while (nifs != null && nifs.hasMoreElements()) {
+                    val n = nifs.nextElement()
+                    if (n != null) res.add(n)
                 }
-                boxIf.addresses = StringArray(addrs)
-                list.add(boxIf)
+                res
+            } catch (_: Exception) {
+                emptyList<NetworkInterface>()
+            }
+
+            if (cm != null && networks != null && networks.isNotEmpty()) {
+                for (network in networks) {
+                    val caps = cm.getNetworkCapabilities(network) ?: continue
+                    if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
+                    if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) continue
+
+                    val lp = cm.getLinkProperties(network) ?: continue
+                    val ifName = lp.interfaceName ?: continue
+                    if (ifName.isBlank() || ifName.startsWith("tun") || ifName.startsWith("ppp")) continue
+
+                    val nif = javaInterfaces.find { it.name == ifName }
+
+                    val boxIf = io.nekohasekai.libbox.NetworkInterface()
+                    boxIf.name = ifName
+                    boxIf.index = nif?.index ?: (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) (network.networkHandle.toInt() and 0x7FFFFFFF) else 1)
+                    boxIf.mtu = try { if ((nif?.mtu ?: 0) > 0) nif!!.mtu else 1500 } catch (_: Exception) { 1500 }
+
+                    val addrs = mutableListOf<String>()
+                    val interfaceAddresses = try { nif?.interfaceAddresses } catch (_: Exception) { null }
+                    if (interfaceAddresses != null) {
+                        for (ia in interfaceAddresses) {
+                            try {
+                                val addr = ia?.address ?: continue
+                                val host = (addr.hostAddress ?: continue).substringBefore('%')
+                                val prefix = ia.networkPrefixLength.toInt()
+                                val validPrefix = if (prefix > 0) prefix else (if (addr is java.net.Inet6Address) 128 else 32)
+                                addrs.add("$host/$validPrefix")
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    if (addrs.isEmpty()) {
+                        for (la in lp.linkAddresses) {
+                            try {
+                                val host = la.address.hostAddress?.substringBefore('%') ?: continue
+                                addrs.add("$host/${la.prefixLength}")
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    boxIf.addresses = StringArray(addrs)
+
+                    // DNS servers
+                    val dnsList = lp.dnsServers.mapNotNull { it.hostAddress?.substringBefore('%') }
+                    boxIf.dnsServer = StringArray(dnsList)
+
+                    // Gateways
+                    val gateways = lp.routes
+                        .filter { it.destination?.prefixLength == 0 }
+                        .mapNotNull { it.gateway?.hostAddress?.substringBefore('%') }
+                        .filterNot { it.startsWith("0.0.0.0") || it == "::" }
+                    boxIf.gateway = StringArray(gateways)
+
+                    // Type
+                    boxIf.type = when {
+                        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> Libbox.InterfaceTypeWIFI
+                        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> Libbox.InterfaceTypeCellular
+                        caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> Libbox.InterfaceTypeEthernet
+                        else -> Libbox.InterfaceTypeOther
+                    }
+
+                    // Flags - MUST HAVE IFF_UP and IFF_RUNNING so sing-box marks it active!
+                    var flags = OsConstants.IFF_UP or OsConstants.IFF_RUNNING
+                    if (nif != null) {
+                        if (try { nif.isLoopback } catch (_: Exception) { false }) flags = flags or OsConstants.IFF_LOOPBACK
+                        if (try { nif.isPointToPoint } catch (_: Exception) { false }) flags = flags or OsConstants.IFF_POINTOPOINT
+                        if (try { nif.supportsMulticast() } catch (_: Exception) { false }) flags = flags or OsConstants.IFF_MULTICAST
+                    }
+                    boxIf.flags = flags
+
+                    // Metered
+                    boxIf.metered = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+                    } else false
+
+                    list.add(boxIf)
+                }
+            }
+
+            // Fallback: if no interfaces found from ConnectivityManager, populate from NetworkInterface
+            if (list.isEmpty()) {
+                for (nif in javaInterfaces) {
+                    val name = nif.name ?: continue
+                    if (name == "lo" || name.startsWith("tun") || name.startsWith("dummy") || name.startsWith("p2p")) continue
+                    val isUp = try { nif.isUp } catch (_: Exception) { true }
+                    if (!isUp) continue
+
+                    val boxIf = io.nekohasekai.libbox.NetworkInterface()
+                    boxIf.name = name
+                    boxIf.index = nif.index
+                    boxIf.mtu = try { if (nif.mtu > 0) nif.mtu else 1500 } catch (_: Exception) { 1500 }
+
+                    val addrs = mutableListOf<String>()
+                    val interfaceAddresses = try { nif.interfaceAddresses } catch (_: Exception) { null }
+                    if (interfaceAddresses != null) {
+                        for (ia in interfaceAddresses) {
+                            try {
+                                val addr = ia?.address ?: continue
+                                val host = (addr.hostAddress ?: continue).substringBefore('%')
+                                val prefix = ia.networkPrefixLength.toInt()
+                                val validPrefix = if (prefix > 0) prefix else (if (addr is java.net.Inet6Address) 128 else 32)
+                                addrs.add("$host/$validPrefix")
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    boxIf.addresses = StringArray(addrs)
+                    boxIf.flags = OsConstants.IFF_UP or OsConstants.IFF_RUNNING
+                    boxIf.type = when {
+                        name.contains("wlan") -> Libbox.InterfaceTypeWIFI
+                        name.contains("rmnet") || name.contains("lte") || name.contains("seth") || name.contains("ccmni") -> Libbox.InterfaceTypeCellular
+                        name.contains("eth") -> Libbox.InterfaceTypeEthernet
+                        else -> Libbox.InterfaceTypeOther
+                    }
+                    list.add(boxIf)
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "getInterfaces error", e)

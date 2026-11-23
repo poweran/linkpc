@@ -38,6 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription<VpnStatus>? _statusSub;
   StreamSubscription<TrafficStats>? _trafficSub;
   StreamSubscription<String>? _logsSub;
+  Timer? _logThrottleTimer;
   List<String> _recentLogs = [];
   Timer? _pingTimer;
 
@@ -62,9 +63,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     _recentLogs = List.of(VpnService.recentLogs);
     _logsSub = VpnService.logsStream.listen((_) {
-      if (mounted) {
-        setState(() {
-          _recentLogs = List.of(VpnService.recentLogs);
+      if (mounted && (_logThrottleTimer == null || !_logThrottleTimer!.isActive)) {
+        _logThrottleTimer = Timer(const Duration(milliseconds: 300), () {
+          if (mounted) {
+            setState(() {
+              _recentLogs = List.of(VpnService.recentLogs);
+            });
+          }
         });
       }
     });
@@ -182,6 +187,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _statusSub?.cancel();
     _trafficSub?.cancel();
     _logsSub?.cancel();
+    _logThrottleTimer?.cancel();
     _pingTimer?.cancel();
     super.dispose();
   }
