@@ -336,10 +336,6 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             builder.setMetered(false)
         }
 
-        try {
-            builder.allowBypass()
-        } catch (_: Exception) {}
-
         // Exclude linkpc itself to prevent routing loops
         try {
             builder.addDisallowedApplication(packageName)
@@ -397,12 +393,23 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                     val prefix = addr.prefix()
                     if (!ip.isNullOrBlank()) {
                         builder.addAddress(ip, prefix)
+                        VpnEvents.log("TUN", "Назначен IPv6 адрес: $ip/$prefix")
                         hasInet6 = true
                     }
                 }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error configuring IPv6 TUN address", e)
+        }
+
+        if (!hasInet6) {
+            try {
+                builder.addAddress("fd00::1", 126)
+                VpnEvents.log("TUN", "Назначен резервный IPv6 адрес: fd00::1/126")
+                hasInet6 = true
+            } catch (e: Exception) {
+                Log.w(TAG, "Резервный IPv6 адрес не назначен", e)
+            }
         }
 
         if (options.autoRoute) {
@@ -473,12 +480,14 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                             val prefix = p.prefix()
                             if (!ip.isNullOrBlank()) {
                                 builder.addRoute(ip, prefix)
+                                VpnEvents.log("TUN", "Добавлен IPv6 маршрут: $ip/$prefix")
                                 hasR6 = true
                             }
                         }
                     }
                     if (!hasR6) {
                         builder.addRoute("::", 0)
+                        VpnEvents.log("TUN", "Добавлен дефолтный IPv6 маршрут (::/0)")
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "IPv6 route configuration omitted", e)

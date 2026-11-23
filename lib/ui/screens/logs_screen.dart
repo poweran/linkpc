@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/services/vpn_service.dart';
 
 class LogsScreen extends StatefulWidget {
@@ -22,7 +23,7 @@ class _LogsScreenState extends State<LogsScreen> {
   @override
   void initState() {
     super.initState();
-    _logs.add('--- Консоль диагностики linkpc [v1.0.17] ---');
+    _logs.add('--- Консоль диагностики linkpc [${AppConstants.displayVersion}] ---');
     _logs.add('--- Ядро: sing-box (libbox), XHTTP Transport ---');
     _logs.addAll(VpnService.logHistory);
 

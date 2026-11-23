@@ -185,15 +185,16 @@ class VpnService {
       ];
 
       // Inject TUN inbound on Mobile (Android / iOS) and macOS (when enableTun is active)
+      // Must use "gvisor" stack on mobile (Android/iOS) because non-root VpnService cannot use kernel system stack
       if (Platform.isAndroid || Platform.isIOS || (Platform.isMacOS && enableTun)) {
         inbounds.add({
           "type": "tun",
           "tag": "tun-in",
-          "address": ["172.19.0.1/30"],
+          "address": ["172.19.0.1/30", "fd00::1/126"],
           "mtu": Platform.isMacOS ? 9000 : 1500,
           "auto_route": true,
           "strict_route": false,
-          "stack": "mixed",
+          "stack": "gvisor",
           "endpoint_independent_nat": true,
         });
       }
@@ -231,6 +232,15 @@ class VpnService {
       bool hasSniff = rules.any((r) => r is Map && r['action'] == 'sniff');
       if (!hasSniff) {
         rules.insert(0, {"action": "sniff"});
+      }
+
+      // Reject IPv6 traffic cleanly so dual-stack mobile apps (Happy Eyeballs) instantly connect via IPv4 tunnel
+      bool hasIpv6Block = rules.any((r) => r is Map && r['ip_version'] == 6);
+      if (!hasIpv6Block) {
+        rules.add({
+          "ip_version": 6,
+          "outbound": "block"
+        });
       }
 
       // Ensure DNS hijacking for TUN / transparent proxying so that DNS queries

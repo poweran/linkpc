@@ -317,29 +317,52 @@ class _HomeScreenState extends State<HomeScreen> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  RichText(
-                    text: const TextSpan(
-                      children: [
-                        TextSpan(
-                          text: 'link',
-                          style: TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
-                            fontFamily: 'monospace',
-                          ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      RichText(
+                        text: const TextSpan(
+                          children: [
+                            TextSpan(
+                              text: 'link',
+                              style: TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                            TextSpan(
+                              text: 'pc',
+                              style: TextStyle(
+                                color: AppColors.cyberCyan,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                          ],
                         ),
-                        TextSpan(
-                          text: 'pc',
-                          style: TextStyle(
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: AppColors.cyberCyan.withOpacity(0.12),
+                          border: Border.all(color: AppColors.cyberCyan.withOpacity(0.4), width: 0.8),
+                        ),
+                        child: Text(
+                          AppConstants.displayVersion,
+                          style: const TextStyle(
                             color: AppColors.cyberCyan,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.bold,
                             fontFamily: 'monospace',
+                            letterSpacing: 0.5,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                   const Text(
                     AppConstants.appTagline,

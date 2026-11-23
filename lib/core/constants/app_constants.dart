@@ -1,6 +1,18 @@
 class AppConstants {
   static const String appName = 'linkpc';
-  static const String appVersion = '1.0.17';
+
+  /// Injected at compile-time via: flutter build ... --dart-define=APP_VERSION=v1.0.18
+  /// Defaults to latest tag if not provided during build
+  static const String rawVersion = String.fromEnvironment('APP_VERSION', defaultValue: 'v1.0.18');
+
+  /// Clean semantic version without 'v' prefix (e.g. '1.0.17')
+  static String get appVersion =>
+      rawVersion.startsWith('v') ? rawVersion.substring(1) : rawVersion;
+
+  /// Display version with 'v' prefix for UI tags and badges (e.g. 'v1.0.17')
+  static String get displayVersion =>
+      rawVersion.startsWith('v') ? rawVersion : 'v$rawVersion';
+
   static const String appTagline = 'HIGH-SPEED SECURE GATEWAY';
 
   // Endpoints

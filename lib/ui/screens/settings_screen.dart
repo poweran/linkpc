@@ -353,9 +353,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'linkpc Client v1.0.0',
-                  style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                Text(
+                  'linkpc Client ${AppConstants.displayVersion}',
+                  style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
                 ),
                 const SizedBox(height: 4),
                 const Text(
