@@ -85,7 +85,7 @@ jobs:
   build-android:
     name: Build Android APK
     if: inputs.target == 'all' || inputs.target == 'android' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.target == null
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -254,7 +254,7 @@ jobs:
   build-linux:
     name: Build Linux Client
     if: inputs.target == 'all' || inputs.target == 'linux' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.target == null
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

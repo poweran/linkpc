@@ -55,7 +55,7 @@ jobs:
   # ==========================================
   prepare-release:
     name: Prepare GitHub Release
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     outputs:
       tag: ${{ steps.resolve_tag.outputs.tag }}
       release_name: ${{ steps.resolve_tag.outputs.release_name }}
@@ -240,7 +240,7 @@ jobs:
     name: Build Android APK
     needs: prepare-release
     if: needs.prepare-release.outputs.build_android == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -412,7 +412,7 @@ jobs:
     name: Build Linux Client
     needs: prepare-release
     if: needs.prepare-release.outputs.build_linux == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
