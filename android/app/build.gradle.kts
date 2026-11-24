@@ -25,6 +25,7 @@ android {
         jniLibs {
             useLegacyPackaging = true
             excludes += listOf(
+                "lib/armeabi-v7a/**",
                 "lib/x86/**",
                 "lib/x86_64/**"
             )
