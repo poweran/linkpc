@@ -84,18 +84,18 @@ class VpnService {
         _lastTrafficTimestamp = now;
 
         // Apply Exponential Moving Average (EMA) and gentle decay so speed doesn't flicker to 0 every second
-        if (effectiveDownSpeed > 0) {
-          _smoothedDownSpeed = _smoothedDownSpeed * 0.35 + effectiveDownSpeed * 0.65;
+        if (effectiveDownSpeed > 512) {
+          _smoothedDownSpeed = _smoothedDownSpeed * 0.4 + effectiveDownSpeed * 0.6;
         } else {
-          _smoothedDownSpeed = _smoothedDownSpeed * 0.55;
-          if (_smoothedDownSpeed < 256) _smoothedDownSpeed = 0;
+          _smoothedDownSpeed = _smoothedDownSpeed * 0.5;
+          if (_smoothedDownSpeed < 512) _smoothedDownSpeed = 0;
         }
 
-        if (effectiveUpSpeed > 0) {
-          _smoothedUpSpeed = _smoothedUpSpeed * 0.35 + effectiveUpSpeed * 0.65;
+        if (effectiveUpSpeed > 512) {
+          _smoothedUpSpeed = _smoothedUpSpeed * 0.4 + effectiveUpSpeed * 0.6;
         } else {
-          _smoothedUpSpeed = _smoothedUpSpeed * 0.55;
-          if (_smoothedUpSpeed < 256) _smoothedUpSpeed = 0;
+          _smoothedUpSpeed = _smoothedUpSpeed * 0.5;
+          if (_smoothedUpSpeed < 512) _smoothedUpSpeed = 0;
         }
 
         Duration duration = Duration.zero;

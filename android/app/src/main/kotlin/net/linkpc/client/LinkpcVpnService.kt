@@ -83,17 +83,21 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
+            cachedInterfacesList = null
             VpnEvents.log("Network", "Физическая сеть доступна: $network")
             updateDefaultInterface(network)
         }
         override fun onLost(network: Network) {
+            cachedInterfacesList = null
             VpnEvents.log("Network", "Физическая сеть потеряна: $network")
             updateDefaultInterface()
         }
         override fun onLinkPropertiesChanged(network: Network, linkProperties: android.net.LinkProperties) {
+            cachedInterfacesList = null
             updateDefaultInterface(network)
         }
         override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+            cachedInterfacesList = null
             updateDefaultInterface(network)
         }
     }
@@ -680,7 +684,7 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     override fun getInterfaces(): NetworkInterfaceIterator {
         val now = android.os.SystemClock.elapsedRealtime()
         val cached = cachedInterfacesList
-        if (cached != null && (now - lastInterfacesTime < 1500L)) {
+        if (cached != null && (now - lastInterfacesTime < 5000L)) {
             return InterfaceArray(cached)
         }
 

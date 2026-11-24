@@ -25,16 +25,24 @@ android {
         jniLibs {
             useLegacyPackaging = true
             excludes += listOf(
-                "lib/armeabi-v7a/**",
                 "lib/x86/**",
                 "lib/x86_64/**"
             )
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("linkpc-release.jks")
+            storePassword = "linkpc_release_key"
+            keyAlias = "linkpc"
+            keyPassword = "linkpc_release_key"
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }

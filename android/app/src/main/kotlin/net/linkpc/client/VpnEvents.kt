@@ -75,10 +75,30 @@ object VpnEvents {
     fun initLogFile(file: File) {
         logFile = file
         try {
-            if (!file.parentFile?.exists()!!) {
-                file.parentFile?.mkdirs()
+            file.parentFile?.mkdirs()
+            // Asynchronously load recent history from disk if memory buffer is empty
+            if (file.exists() && file.length() > 0) {
+                fileExecutor.execute {
+                    loadLogsFromFile(file)
+                }
             }
         } catch (_: Exception) {}
+    }
+
+    private fun loadLogsFromFile(file: File) {
+        synchronized(logLock) {
+            if (logHistory.isNotEmpty()) return
+            try {
+                val lines = file.readLines()
+                val start = if (lines.size > MAX_LOGS) lines.size - MAX_LOGS else 0
+                for (i in start until lines.size) {
+                    val l = lines[i].trim()
+                    if (l.isNotEmpty()) {
+                        logHistory.addLast(l)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     fun getLogFilePath(): String = logFile?.absolutePath ?: ""
@@ -92,6 +112,8 @@ object VpnEvents {
         }
     }
 
+    private var writeCounter = 0
+
     fun log(tag: String, message: String) {
         val timeStr = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
         val formatted = "[$timeStr][$tag] $message"
@@ -104,13 +126,17 @@ object VpnEvents {
             }
         }
 
-        // Write to log file asynchronously
+        // Write to log file asynchronously with size guard (max 2MB)
         val targetFile = logFile
         if (targetFile != null) {
             fileExecutor.execute {
                 try {
                     FileWriter(targetFile, true).use { writer ->
                         writer.append(formatted).append("\n")
+                    }
+                    writeCounter++
+                    if (writeCounter % 200 == 0 && targetFile.length() > 2 * 1024 * 1024) {
+                        pruneLogFile(targetFile)
                     }
                 } catch (_: Exception) {}
             }
@@ -126,6 +152,16 @@ object VpnEvents {
                 }
             }
         }
+    }
+
+    private fun pruneLogFile(file: File) {
+        try {
+            val lines = file.readLines()
+            if (lines.size > MAX_LOGS) {
+                val kept = lines.subList(lines.size - MAX_LOGS / 2, lines.size)
+                file.writeText(kept.joinToString("\n") + "\n")
+            }
+        } catch (_: Exception) {}
     }
 
     fun sendStatus(status: String) {
@@ -160,6 +196,21 @@ object VpnEvents {
 
     fun getLogs(): List<String> {
         synchronized(logLock) {
+            if (logHistory.isEmpty()) {
+                val file = logFile
+                if (file != null && file.exists() && file.length() > 0) {
+                    try {
+                        val lines = file.readLines()
+                        val start = if (lines.size > MAX_LOGS) lines.size - MAX_LOGS else 0
+                        for (i in start until lines.size) {
+                            val l = lines[i].trim()
+                            if (l.isNotEmpty()) {
+                                logHistory.addLast(l)
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
             return ArrayList(logHistory)
         }
     }

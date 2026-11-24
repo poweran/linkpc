@@ -16,6 +16,12 @@ class MainActivity: FlutterActivity() {
     private var pendingConfig: String? = null
     private var pendingResult: MethodChannel.Result? = null
 
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        val logFile = java.io.File(getExternalFilesDir(null) ?: filesDir, "linkpc.log")
+        VpnEvents.initLogFile(logFile)
+    }
+
     override fun onResume() {
         super.onResume()
         VpnEvents.setAppInForeground(true)

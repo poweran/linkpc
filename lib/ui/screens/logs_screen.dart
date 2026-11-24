@@ -14,6 +14,8 @@ class LogsScreen extends StatefulWidget {
 
 class _LogsScreenState extends State<LogsScreen> {
   final List<String> _logs = [];
+  final List<String> _pendingLogs = [];
+  Timer? _batchFlushTimer;
   StreamSubscription<String>? _logSub;
   final ScrollController _scrollController = ScrollController();
   bool _autoScroll = true;
@@ -31,19 +33,22 @@ class _LogsScreenState extends State<LogsScreen> {
     _loadNativeData();
 
     _logSub = VpnService.logsStream.listen((line) {
-      if (mounted) {
+      if (!mounted) return;
+      _pendingLogs.add(line);
+      _batchFlushTimer ??= Timer(const Duration(milliseconds: 150), () {
+        _batchFlushTimer = null;
+        if (!mounted || _pendingLogs.isEmpty) return;
         setState(() {
-          _logs.add(line);
-          if (_logs.length > 1500) _logs.removeAt(0);
+          _logs.addAll(_pendingLogs);
+          _pendingLogs.clear();
+          if (_logs.length > 1500) {
+            _logs.removeRange(0, _logs.length - 1500);
+          }
         });
-        if (_autoScroll) {
-          Future.delayed(const Duration(milliseconds: 100), () {
-            if (_scrollController.hasClients) {
-              _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-            }
-          });
+        if (_autoScroll && _scrollController.hasClients) {
+          _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
         }
-      }
+      });
     });
   }
 
@@ -56,7 +61,11 @@ class _LogsScreenState extends State<LogsScreen> {
         _logs.clear();
         _logs.add('--- Консоль диагностики linkpc [${AppConstants.displayVersion}] ---');
         _logs.add('--- Ядро: sing-box (libbox), XHTTP Transport ---');
-        _logs.addAll(nativeLogs);
+        if (nativeLogs.isNotEmpty) {
+          _logs.addAll(nativeLogs);
+        } else if (VpnService.logHistory.isNotEmpty) {
+          _logs.addAll(VpnService.logHistory);
+        }
       });
       if (_autoScroll) {
         Future.delayed(const Duration(milliseconds: 150), () {
@@ -128,6 +137,7 @@ class _LogsScreenState extends State<LogsScreen> {
 
   @override
   void dispose() {
+    _batchFlushTimer?.cancel();
     _logSub?.cancel();
     _scrollController.dispose();
     super.dispose();

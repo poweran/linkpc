@@ -44,8 +44,6 @@ class SpeedTestService {
       ..connectionTimeout = const Duration(seconds: 4)
       ..badCertificateCallback = ((X509Certificate cert, String host, int port) => true);
 
-    // When VPN tunnel is connected, route speed test through sing-box mixed proxy (127.0.0.1:2080)
-    // so traffic flows 100% through the encrypted tunnel to the server.
     if (VpnService.status.isConnected) {
       client.findProxy = (uri) => 'PROXY 127.0.0.1:2080';
     }
@@ -56,68 +54,86 @@ class SpeedTestService {
       statusText: 'Подключение к тестовому узлу...',
     ));
 
-    final sw = Stopwatch()..start();
-    int receivedBytes = 0;
-    const targetBytes = 10485760; // 10 MB payload
+    final testUrls = [
+      'https://speed.cloudflare.com/__down?bytes=10485760',
+      'https://vless.linkpc.net/downloads/sing-box',
+    ];
 
-    try {
-      final req = await client
-          .getUrl(Uri.parse('https://speed.cloudflare.com/__down?bytes=10485760'))
-          .timeout(const Duration(seconds: 6));
-      final res = await req.close().timeout(const Duration(seconds: 6));
+    for (final testUrl in testUrls) {
+      final sw = Stopwatch()..start();
+      int receivedBytes = 0;
+      const targetBytes = 10485760; // 10 MB payload target
+      int lastReportMs = 0;
 
-      if (res.statusCode != 200) {
-        throw HttpException('Статус сервера: ${res.statusCode}');
-      }
+      try {
+        final req = await client.getUrl(Uri.parse(testUrl)).timeout(const Duration(seconds: 4));
+        final res = await req.close().timeout(const Duration(seconds: 4));
 
-      final latencyMs = sw.elapsedMilliseconds;
-      sw.reset();
-      sw.start();
-
-      await for (final chunk in res) {
-        receivedBytes += chunk.length;
-        final elapsedSec = sw.elapsedMilliseconds / 1000.0;
-        if (elapsedSec > 0.05) {
-          final currentMbps = (receivedBytes * 8.0 / (1024 * 1024)) / elapsedSec;
-          final prog = (receivedBytes / targetBytes).clamp(0.05, 0.95);
-          onProgress(SpeedTestProgress(
-            isRunning: true,
-            currentMbps: currentMbps,
-            progress: prog,
-            statusText: '${currentMbps.toStringAsFixed(1)} Мбит/с',
-          ));
+        if (res.statusCode != 200 && res.statusCode != 206) {
+          throw HttpException('Статус сервера: ${res.statusCode}');
         }
+
+        final latencyMs = sw.elapsedMilliseconds;
+        sw.reset();
+        sw.start();
+
+        await for (final chunk in res) {
+          receivedBytes += chunk.length;
+          final elapsedMs = sw.elapsedMilliseconds;
+          if (elapsedMs - lastReportMs > 180 && elapsedMs > 50) {
+            lastReportMs = elapsedMs;
+            final elapsedSec = elapsedMs / 1000.0;
+            final currentMbps = (receivedBytes * 8.0 / (1024 * 1024)) / elapsedSec;
+            final prog = (receivedBytes / targetBytes).clamp(0.05, 0.95);
+            onProgress(SpeedTestProgress(
+              isRunning: true,
+              currentMbps: currentMbps,
+              progress: prog,
+              statusText: '${currentMbps.toStringAsFixed(1)} Мбит/с',
+            ));
+          }
+
+          // Complete test early once target bytes are reached
+          if (receivedBytes >= targetBytes) {
+            break;
+          }
+        }
+
+        sw.stop();
+        final totalSec = sw.elapsedMilliseconds / 1000.0;
+        final finalMbps = totalSec > 0.05
+            ? (receivedBytes * 8.0 / (1024 * 1024)) / totalSec
+            : 0.0;
+
+        final resObj = SpeedTestResult(
+          downloadSpeedMbps: finalMbps,
+          latencyMs: latencyMs,
+          timestamp: DateTime.now(),
+        );
+        lastResult = resObj;
+
+        onProgress(SpeedTestProgress(
+          isRunning: false,
+          currentMbps: finalMbps,
+          progress: 1.0,
+          statusText: '${finalMbps.toStringAsFixed(1)} Мбит/с',
+        ));
+
+        client.close();
+        return resObj;
+      } catch (e) {
+        // Try fallback testUrl if available
+        if (testUrl != testUrls.last) {
+          continue;
+        }
+        onProgress(SpeedTestProgress(
+          isRunning: false,
+          statusText: 'Ошибка замера: $e',
+        ));
       }
-
-      sw.stop();
-      final totalSec = sw.elapsedMilliseconds / 1000.0;
-      final finalMbps = totalSec > 0.1
-          ? (receivedBytes * 8.0 / (1024 * 1024)) / totalSec
-          : 0.0;
-
-      final resObj = SpeedTestResult(
-        downloadSpeedMbps: finalMbps,
-        latencyMs: latencyMs,
-        timestamp: DateTime.now(),
-      );
-      lastResult = resObj;
-
-      onProgress(SpeedTestProgress(
-        isRunning: false,
-        currentMbps: finalMbps,
-        progress: 1.0,
-        statusText: '${finalMbps.toStringAsFixed(1)} Мбит/с',
-      ));
-
-      return resObj;
-    } catch (e) {
-      onProgress(SpeedTestProgress(
-        isRunning: false,
-        statusText: 'Ошибка замера: $e',
-      ));
-      return null;
-    } finally {
-      client.close();
     }
+
+    client.close();
+    return null;
   }
 }
