@@ -45,7 +45,7 @@ class SpeedTestService {
       ..badCertificateCallback = ((X509Certificate cert, String host, int port) => true);
 
     if (VpnService.status.isConnected) {
-      client.findProxy = (uri) => 'PROXY 127.0.0.1:2080';
+      client.findProxy = (uri) => 'PROXY 127.0.0.1:2080; DIRECT';
     }
 
     onProgress(const SpeedTestProgress(
@@ -122,6 +122,7 @@ class SpeedTestService {
         client.close();
         return resObj;
       } catch (e) {
+        VpnService.log('[SpeedTest]: Ошибка загрузки $testUrl -> $e');
         // Try fallback testUrl if available
         if (testUrl != testUrls.last) {
           continue;

@@ -199,6 +199,8 @@ class VpnService {
     return null;
   }
 
+  static void log(String message) => _log(message);
+
   static void _log(String message) {
     final entry = message.startsWith('[')
         ? message

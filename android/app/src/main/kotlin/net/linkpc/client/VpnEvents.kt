@@ -26,6 +26,8 @@ object VpnEvents {
     private var lastDownSpeed: Long = 0L
     private var lastTotalUp: Long = 0L
     private var lastTotalDown: Long = 0L
+    @Volatile
+    private var lastTrafficDispatchTime = 0L
 
     private val pendingLogsLock = Any()
     private val pendingLogs = ArrayList<String>()
@@ -67,6 +69,7 @@ object VpnEvents {
             isFlushScheduled = false
         } else {
             if (lastTotalUp > 0 || lastTotalDown > 0) {
+                lastTrafficDispatchTime = 0L
                 sendTraffic(lastUpSpeed, lastDownSpeed, lastTotalUp, lastTotalDown)
             }
         }
@@ -112,10 +115,15 @@ object VpnEvents {
         }
     }
 
+    private val timeFormat = object : ThreadLocal<SimpleDateFormat>() {
+        override fun initialValue(): SimpleDateFormat {
+            return SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+        }
+    }
     private var writeCounter = 0
 
     fun log(tag: String, message: String) {
-        val timeStr = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
+        val timeStr = timeFormat.get()?.format(Date()) ?: ""
         val formatted = "[$timeStr][$tag] $message"
         android.util.Log.i("linkpc", formatted)
 
@@ -179,13 +187,18 @@ object VpnEvents {
         lastTotalUp = totalUp
         lastTotalDown = totalDown
         if (!isAppInForeground || eventSink == null) return
+
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastTrafficDispatchTime < 800) return
+        lastTrafficDispatchTime = now
+
         mainHandler.post {
             try {
                 eventSink?.success(
                     mapOf(
                         "type" to "traffic",
-                        "up_speed" to upSpeed.toInt(),
-                        "down_speed" to downSpeed.toInt(),
+                        "up_speed" to upSpeed,
+                        "down_speed" to downSpeed,
                         "total_up" to totalUp,
                         "total_down" to totalDown
                     )
