@@ -13,6 +13,8 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.system.OsConstants
@@ -52,6 +54,7 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         private var isLibboxSetup = false
     }
 
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var vpnInterface: ParcelFileDescriptor? = null
     private var commandServer: CommandServer? = null
     private var commandClient: CommandClient? = null
