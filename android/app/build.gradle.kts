@@ -4,10 +4,25 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Prefer pre-installed NDK from Android SDK on CI/runners to avoid 1GB+ download overhead
+val detectedNdkVersion: String = run {
+    val androidHome = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
+    if (androidHome != null) {
+        val ndkDir = File(androidHome, "ndk")
+        if (ndkDir.isDirectory) {
+            val installed = ndkDir.listFiles()?.filter { it.isDirectory }?.map { it.name }?.sortedDescending()
+            if (!installed.isNullOrEmpty()) {
+                return@run installed.first()
+            }
+        }
+    }
+    flutter.ndkVersion
+}
+
 android {
     namespace = "net.linkpc.client"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = detectedNdkVersion
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
