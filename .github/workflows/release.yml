@@ -59,6 +59,11 @@ jobs:
     outputs:
       tag: ${{ steps.resolve_tag.outputs.tag }}
       release_name: ${{ steps.resolve_tag.outputs.release_name }}
+      build_android: ${{ steps.detect_changes.outputs.build_android }}
+      build_windows: ${{ steps.detect_changes.outputs.build_windows }}
+      build_macos: ${{ steps.detect_changes.outputs.build_macos }}
+      build_ios: ${{ steps.detect_changes.outputs.build_ios }}
+      build_linux: ${{ steps.detect_changes.outputs.build_linux }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -89,6 +94,48 @@ jobs:
           echo "release_name=${REL_NAME}" >> "$GITHUB_OUTPUT"
           echo "Using Tag: ${TAG}, Name: ${REL_NAME}"
 
+      - name: Detect Changed Platforms
+        id: detect_changes
+        run: |
+          TAG="${{ steps.resolve_tag.outputs.tag }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TARGET="${{ inputs.target }}"
+            echo "build_android=$([ "$TARGET" = "all" ] || [ "$TARGET" = "android" ] && echo "true" || echo "false")" >> "$GITHUB_OUTPUT"
+            echo "build_windows=$([ "$TARGET" = "all" ] || [ "$TARGET" = "windows" ] && echo "true" || echo "false")" >> "$GITHUB_OUTPUT"
+            echo "build_macos=$([ "$TARGET" = "all" ] || [ "$TARGET" = "macos" ] && echo "true" || echo "false")" >> "$GITHUB_OUTPUT"
+            echo "build_ios=$([ "$TARGET" = "all" ] || [ "$TARGET" = "ios" ] && echo "true" || echo "false")" >> "$GITHUB_OUTPUT"
+            echo "build_linux=$([ "$TARGET" = "all" ] || [ "$TARGET" = "linux" ] && echo "true" || echo "false")" >> "$GITHUB_OUTPUT"
+          elif echo "$TAG" | grep -qE -- '-(all|full)$'; then
+            echo "Explicit full build requested via tag: $TAG"
+            echo "build_android=true" >> "$GITHUB_OUTPUT"
+            echo "build_windows=true" >> "$GITHUB_OUTPUT"
+            echo "build_macos=true" >> "$GITHUB_OUTPUT"
+            echo "build_ios=true" >> "$GITHUB_OUTPUT"
+            echo "build_linux=true" >> "$GITHUB_OUTPUT"
+          else
+            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+            if [ -n "$PREV_TAG" ]; then
+              CHANGED=$(git diff --name-only "$PREV_TAG" HEAD)
+            else
+              CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+            fi
+            echo "=== Changed files since ${PREV_TAG:-init} ==="
+            echo "$CHANGED"
+
+            HAS_MACOS=$(echo "$CHANGED" | grep -q '^macos/' && echo "true" || echo "false")
+            HAS_IOS=$(echo "$CHANGED" | grep -q '^ios/' && echo "true" || echo "false")
+            HAS_LINUX=$(echo "$CHANGED" | grep -q '^linux/' && echo "true" || echo "false")
+
+            # Android and Windows are fast (<2 min) and the primary distribution targets
+            # macOS / iOS / Linux are heavy and only built if their native code changed or -all tag used
+            echo "build_android=true" >> "$GITHUB_OUTPUT"
+            echo "build_windows=true" >> "$GITHUB_OUTPUT"
+            echo "build_macos=$HAS_MACOS" >> "$GITHUB_OUTPUT"
+            echo "build_ios=$HAS_IOS" >> "$GITHUB_OUTPUT"
+            echo "build_linux=$HAS_LINUX" >> "$GITHUB_OUTPUT"
+            echo "Plan: Android=true, Windows=true, macOS=$HAS_MACOS, iOS=$HAS_IOS, Linux=$HAS_LINUX"
+          fi
+
       - name: Create or Update GitHub Release Entry
         uses: softprops/action-gh-release@v2
         with:
@@ -104,7 +151,7 @@ jobs:
   build-windows:
     name: Build Windows Client
     needs: prepare-release
-    if: inputs.target == 'all' || inputs.target == 'windows' || github.event_name != 'workflow_dispatch'
+    if: needs.prepare-release.outputs.build_windows == 'true'
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -164,7 +211,7 @@ jobs:
   build-android:
     name: Build Android APK
     needs: prepare-release
-    if: inputs.target == 'all' || inputs.target == 'android' || github.event_name != 'workflow_dispatch'
+    if: needs.prepare-release.outputs.build_android == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -229,7 +276,7 @@ jobs:
   build-macos:
     name: Build macOS Application
     needs: prepare-release
-    if: inputs.target == 'all' || inputs.target == 'macos' || github.event_name != 'workflow_dispatch'
+    if: needs.prepare-release.outputs.build_macos == 'true'
     runs-on: macos-15
     timeout-minutes: 15
     steps:
@@ -291,7 +338,7 @@ jobs:
   build-ios:
     name: Build iOS IPA
     needs: prepare-release
-    if: inputs.target == 'all' || inputs.target == 'ios' || github.event_name != 'workflow_dispatch'
+    if: needs.prepare-release.outputs.build_ios == 'true'
     runs-on: macos-15
     timeout-minutes: 15
     steps:
@@ -334,7 +381,7 @@ jobs:
   build-linux:
     name: Build Linux Client
     needs: prepare-release
-    if: inputs.target == 'all' || inputs.target == 'linux' || github.event_name != 'workflow_dispatch'
+    if: needs.prepare-release.outputs.build_linux == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
