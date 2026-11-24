@@ -70,6 +70,9 @@ class VpnService {
       } else if (type == 'log') {
         final msg = event['message'] as String? ?? '';
         _log(msg);
+      } else if (type == 'logs') {
+        final msgs = event['messages'] as List<dynamic>? ?? [];
+        _addLogs(msgs.map((e) => e.toString()).toList());
       }
     }
   }
@@ -152,10 +155,20 @@ class VpnService {
         ? message
         : '[${DateTime.now().toIso8601String().substring(11, 19)}] $message';
     _logHistory.add(entry);
-    if (_logHistory.length > 500) {
-      _logHistory.removeRange(0, _logHistory.length - 500);
+    if (_logHistory.length > 1500) {
+      _logHistory.removeRange(0, _logHistory.length - 1500);
     }
     _logsController.add(entry);
+  }
+
+  static void _addLogs(List<String> messages) {
+    if (messages.isEmpty) return;
+    final formatted = messages.map((m) => m.startsWith('[') ? m : '[${DateTime.now().toIso8601String().substring(11, 19)}] $m');
+    _logHistory.addAll(formatted);
+    if (_logHistory.length > 1500) {
+      _logHistory.removeRange(0, _logHistory.length - 1500);
+    }
+    _logsController.add(messages.last);
   }
 
   /// Injects inbounds (mixed proxy 2080 + tun) and routing rules into sing-box config

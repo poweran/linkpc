@@ -57,6 +57,9 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private var commandClient: CommandClient? = null
     private var defaultInterfaceListener: InterfaceUpdateListener? = null
     private var connectivityManager: ConnectivityManager? = null
+    private var networkHandlerThread: android.os.HandlerThread? = null
+    @Volatile
+    private var lastTargetNet: Network? = null
     @Volatile
     private var lastInterfaceName: String? = null
     @Volatile
@@ -169,13 +172,16 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 }
             }
 
-            // Register network callback specifically for non-VPN internet networks
+            // Register network callback specifically for non-VPN internet networks on dedicated background handler thread
             try {
                 val request = NetworkRequest.Builder()
                     .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                     .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                     .build()
-                connectivityManager?.registerNetworkCallback(request, networkCallback)
+                val thread = android.os.HandlerThread("linkpc-net-monitor").apply { start() }
+                networkHandlerThread = thread
+                val handler = android.os.Handler(thread.looper)
+                connectivityManager?.registerNetworkCallback(request, networkCallback, handler)
                 VpnEvents.log("Network", "Запущен мониторинг физических сетей (Wi-Fi / Mobile)")
             } catch (e: Exception) {
                 VpnEvents.log("Network", "Ошибка registerNetworkCallback: ${e.message}")
@@ -291,6 +297,13 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         try {
             connectivityManager?.unregisterNetworkCallback(networkCallback)
         } catch (_: Exception) {}
+        try {
+            networkHandlerThread?.quitSafely()
+        } catch (_: Exception) {}
+        networkHandlerThread = null
+        lastTargetNet = null
+        lastInterfaceName = null
+        lastInterfaceIndex = -1
 
         try {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -574,12 +587,16 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 return
             }
 
-            // Set underlying physical network on VpnService to prevent routing loops
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                try {
-                    setUnderlyingNetworks(arrayOf(targetNet))
-                } catch (e: Exception) {
-                    VpnEvents.log("Network", "Ошибка setUnderlyingNetworks: ${e.message}")
+            // Only update underlying network on VpnService if target physical network actually changed
+            val targetNetChanged = (targetNet != lastTargetNet)
+            if (targetNetChanged) {
+                lastTargetNet = targetNet
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                    try {
+                        setUnderlyingNetworks(arrayOf(targetNet))
+                    } catch (e: Exception) {
+                        VpnEvents.log("Network", "Ошибка setUnderlyingNetworks: ${e.message}")
+                    }
                 }
             }
 
@@ -607,9 +624,8 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                 0
             }
 
-            // Deduplicate: avoid freezing UI / resetting sing-box when switching apps
-            if (lastInterfaceName == ifName && lastInterfaceIndex == ifIdx &&
-                lastIsExpensive == isExpensive && lastIsConstrained == isConstrained) {
+            // Deduplicate: do NOT reset sing-box routing table if physical interface has not changed
+            if (!targetNetChanged && lastInterfaceName == ifName && lastInterfaceIndex == ifIdx) {
                 return
             }
             lastInterfaceName = ifName

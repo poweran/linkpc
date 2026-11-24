@@ -19,6 +19,9 @@ class MainActivity: FlutterActivity() {
     override fun onResume() {
         super.onResume()
         VpnEvents.setAppInForeground(true)
+        if (LinkpcVpnService.isRunning) {
+            VpnEvents.sendStatus("connected")
+        }
     }
 
     override fun onPause() {
