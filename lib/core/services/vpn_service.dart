@@ -256,16 +256,21 @@ class VpnService {
         });
       }
 
-      // Reject Private DNS (port 853 / DoT) so Android doesn't hang on validation probe
-      bool hasBlockDot = rules.any((r) => r is Map && r['port'] == 853);
-      if (!hasBlockDot) {
-        final lastDnsIdx = rules.lastIndexWhere((r) => r is Map && (r['action'] == 'hijack-dns' || r['protocol'] == 'dns' || r['port'] == 53));
-        final insertIdx = lastDnsIdx >= 0 ? lastDnsIdx + 1 : rules.length;
-        rules.insert(insertIdx, {
-          "port": 853,
-          "outbound": "block"
-        });
-      }
+      // Reject Private DNS (port 853 / DoT) cleanly with TCP RST so Android doesn't hang on validation probe
+      // and prevent sing-box from logging "open connection to ... using outbound/block[block]: operation not permitted" ERROR
+      rules.removeWhere((r) {
+        if (r is! Map) return false;
+        final p = r['port'];
+        if (p == 853) return true;
+        if (p is List && p.contains(853)) return true;
+        return false;
+      });
+      final lastDnsIdx = rules.lastIndexWhere((r) => r is Map && (r['action'] == 'hijack-dns' || r['protocol'] == 'dns' || r['port'] == 53));
+      final insertIdx = lastDnsIdx >= 0 ? lastDnsIdx + 1 : rules.length;
+      rules.insert(insertIdx, {
+        "port": 853,
+        "action": "reject"
+      });
 
       // Ensure direct DNS IPs bypass the tunnel directly
       bool hasDirectDnsRule = rules.any((r) => r is Map && r['ip_cidr'] is List && (r['ip_cidr'] as List).contains('77.88.8.8/32'));
