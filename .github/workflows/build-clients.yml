@@ -127,7 +127,7 @@ jobs:
 
       - name: Fast Build Android APK (arm64-v8a)
         run: |
-          flutter build apk --release --target-platform android-arm64 --android-skip-build-dependency-validation --dart-define=APP_VERSION=${{ github.ref_name }}
+          flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons --android-skip-build-dependency-validation --dart-define=APP_VERSION=${{ github.ref_name }}
           mkdir -p output
           # 64-bit ARM APK only (99.9% of modern phones, ~35MB)
           cp build/app/outputs/flutter-apk/app-release.apk output/linkpc-android.apk
