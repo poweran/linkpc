@@ -265,20 +265,16 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Cache libbox.aar
-        id: cache-libbox
-        uses: actions/cache@v4
-        with:
-          path: android/app/libs/libbox.aar
-          key: libbox-aar-1.14.4
-
       - name: Bundle libbox.aar core
-        if: steps.cache-libbox.outputs.cache-hit != 'true'
         run: |
           mkdir -p android/app/libs
-          echo "Downloading sing-box libbox.aar core..."
-          curl -L --retry 3 --connect-timeout 10 -o android/app/libs/libbox.aar "https://github.com/singbox-android/libbox/releases/download/1.14.4/libbox.aar" || \
-          curl -L --retry 3 --connect-timeout 10 -o android/app/libs/libbox.aar "https://vless.linkpc.net/downloads/libbox.aar"
+          if [ -f /srv/libbox-cache/libbox.aar ]; then
+            cp /srv/libbox-cache/libbox.aar android/app/libs/libbox.aar
+          else
+            echo "Downloading sing-box libbox.aar core..."
+            curl -L --retry 3 --connect-timeout 10 -o android/app/libs/libbox.aar "https://github.com/singbox-android/libbox/releases/download/1.14.4/libbox.aar" || \
+            curl -L --retry 3 --connect-timeout 10 -o android/app/libs/libbox.aar "https://vless.linkpc.net/downloads/libbox.aar"
+          fi
 
       - name: Fast Build Android APK (arm64-v8a)
         run: |
@@ -287,12 +283,6 @@ jobs:
           # 64-bit ARM APK only (99.9% of modern phones, ~35MB)
           cp build/app/outputs/flutter-apk/app-release.apk output/linkpc-android.apk
           cp build/app/outputs/flutter-apk/app-release.apk output/linkpc-android-arm64.apk
-
-      - name: Upload Android Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: linkpc-android
-          path: output/*.apk
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
