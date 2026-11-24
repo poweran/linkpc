@@ -205,65 +205,12 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             isRunning = true
 
             // Connect CommandClient to stream live sing-box logs and real traffic metrics
-            try {
-                val clientOptions = CommandClientOptions().apply {
-                    addCommand(Libbox.CommandLog)
-                    addCommand(Libbox.CommandStatus)
-                    statusInterval = 1000L
-                }
-                val client = CommandClient(object : CommandClientHandler {
-                    override fun clearLogs() {}
-                    override fun connected() {
-                        VpnEvents.log("Client", "Подключен клиент мониторинга sing-box core")
-                    }
-                    override fun disconnected(message: String) {
-                        if (message.contains("context canceled", ignoreCase = true) || !isRunning) {
-                            VpnEvents.log("Client", "Клиент мониторинга штатно отключен")
-                        } else {
-                            VpnEvents.log("Client", "Отключен клиент мониторинга: $message")
-                        }
-                    }
-                    override fun initializeClashMode(modeList: StringIterator, currentMode: String) {}
-                    override fun setDefaultLogLevel(level: Int) {}
-                    override fun updateClashMode(newMode: String) {}
-                    override fun writeConnectionEvents(events: ConnectionEvents) {}
-                    override fun writeGroups(groups: OutboundGroupIterator) {}
-                    override fun writeLogs(messageList: LogIterator) {
-                        while (messageList.hasNext()) {
-                            val entry = messageList.next()
-                            val msg = entry?.message ?: ""
-                            val level = entry?.level ?: 0
-                            // In libbox: 0 = trace, 1 = debug, 2 = info, 3 = warn, 4 = error, 5 = fatal, 6 = panic
-                            // Filter out trace (0) and debug (1) noise unless it's a real ERROR/WARN
-                            // (exclude false-positive 'NOERROR' DNS responses)
-                            if (level < 2) {
-                                val isRealErr = (msg.contains("ERROR[") || msg.contains("FATAL") || msg.contains("PANIC") ||
-                                        (msg.contains("ERROR") && !msg.contains("NOERROR")))
-                                if (!isRealErr && !msg.contains("WARN")) {
-                                    continue
-                                }
-                            }
-                            if (msg.isNotBlank()) {
-                                VpnEvents.log("box", msg)
-                            }
-                        }
-                    }
-                    override fun writeOutbounds(outbounds: OutboundGroupItemIterator) {}
-                    override fun writeStatus(status: StatusMessage) {
-                        VpnEvents.sendTraffic(
-                            status.uplink,
-                            status.downlink,
-                            status.uplinkTotal,
-                            status.downlinkTotal
-                        )
-                    }
-                }, clientOptions)
-
-                client.connect()
-                commandClient = client
-            } catch (e: Throwable) {
-                VpnEvents.log("Client", "Не удалось запустить CommandClient логов: ${e.message}")
+            val clientOptions = CommandClientOptions().apply {
+                addCommand(Libbox.CommandLog)
+                addCommand(Libbox.CommandStatus)
+                statusInterval = 1000L
             }
+            startMonitoringClient(clientOptions)
 
             VpnEvents.sendStatus("connected")
             updateForegroundNotification("Шлюз linkpc активен • Трафик зашифрован")
@@ -271,6 +218,76 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         } catch (e: Throwable) {
             VpnEvents.log("Error", "Критическая ошибка запуска туннеля: ${e.message}")
             stopTunnel()
+        }
+    }
+
+    private fun startMonitoringClient(options: CommandClientOptions) {
+        if (!isRunning) return
+        try {
+            val client = CommandClient(object : CommandClientHandler {
+                override fun clearLogs() {}
+                override fun connected() {
+                    VpnEvents.log("Client", "Подключен клиент мониторинга sing-box core")
+                }
+                override fun disconnected(message: String) {
+                    if (!isRunning) {
+                        VpnEvents.log("Client", "Клиент мониторинга штатно отключен")
+                        return
+                    }
+                    VpnEvents.log("Client", "Отключен клиент мониторинга: $message (переподключение через 2с...)")
+                    mainHandler.postDelayed({
+                        if (isRunning && commandServer != null) {
+                            startMonitoringClient(options)
+                        }
+                    }, 2000)
+                }
+                override fun initializeClashMode(modeList: StringIterator, currentMode: String) {}
+                override fun setDefaultLogLevel(level: Int) {}
+                override fun updateClashMode(newMode: String) {}
+                override fun writeConnectionEvents(events: ConnectionEvents) {}
+                override fun writeGroups(groups: OutboundGroupIterator) {}
+                override fun writeLogs(messageList: LogIterator) {
+                    while (messageList.hasNext()) {
+                        val entry = messageList.next()
+                        val msg = entry?.message ?: ""
+                        val level = entry?.level ?: 0
+                        // In libbox: 0 = trace, 1 = debug, 2 = info, 3 = warn, 4 = error, 5 = fatal, 6 = panic
+                        // Filter out trace (0) and debug (1) noise unless it's a real ERROR/WARN
+                        // (exclude false-positive 'NOERROR' DNS responses)
+                        if (level < 2) {
+                            val isRealErr = (msg.contains("ERROR[") || msg.contains("FATAL") || msg.contains("PANIC") ||
+                                    (msg.contains("ERROR") && !msg.contains("NOERROR")))
+                            if (!isRealErr && !msg.contains("WARN")) {
+                                continue
+                            }
+                        }
+                        if (msg.isNotBlank()) {
+                            VpnEvents.log("box", msg)
+                        }
+                    }
+                }
+                override fun writeOutbounds(outbounds: OutboundGroupItemIterator) {}
+                override fun writeStatus(status: StatusMessage) {
+                    VpnEvents.sendTraffic(
+                        status.uplink,
+                        status.downlink,
+                        status.uplinkTotal,
+                        status.downlinkTotal
+                    )
+                }
+            }, options)
+
+            client.connect()
+            commandClient = client
+        } catch (e: Throwable) {
+            VpnEvents.log("Client", "Не удалось запустить CommandClient логов: ${e.message}")
+            if (isRunning) {
+                mainHandler.postDelayed({
+                    if (isRunning && commandServer != null) {
+                        startMonitoringClient(options)
+                    }
+                }, 3000)
+            }
         }
     }
 

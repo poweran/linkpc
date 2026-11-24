@@ -22,6 +22,10 @@ object VpnEvents {
 
     @Volatile
     private var isAppInForeground = true
+    private var lastUpSpeed: Long = 0L
+    private var lastDownSpeed: Long = 0L
+    private var lastTotalUp: Long = 0L
+    private var lastTotalDown: Long = 0L
 
     private val pendingLogsLock = Any()
     private val pendingLogs = ArrayList<String>()
@@ -61,6 +65,10 @@ object VpnEvents {
             }
             mainHandler.removeCallbacks(flushLogsRunnable)
             isFlushScheduled = false
+        } else {
+            if (lastTotalUp > 0 || lastTotalDown > 0) {
+                sendTraffic(lastUpSpeed, lastDownSpeed, lastTotalUp, lastTotalDown)
+            }
         }
     }
 
@@ -130,6 +138,10 @@ object VpnEvents {
     }
 
     fun sendTraffic(upSpeed: Long, downSpeed: Long, totalUp: Long, totalDown: Long) {
+        lastUpSpeed = upSpeed
+        lastDownSpeed = downSpeed
+        lastTotalUp = totalUp
+        lastTotalDown = totalDown
         if (!isAppInForeground || eventSink == null) return
         mainHandler.post {
             try {

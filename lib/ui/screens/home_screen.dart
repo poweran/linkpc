@@ -8,6 +8,7 @@ import '../../core/models/user_profile.dart';
 import '../../core/models/vpn_state.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/ping_service.dart';
+import '../../core/services/speed_test_service.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/vpn_service.dart';
 import '../../core/utils/formatters.dart';
@@ -32,6 +33,8 @@ class _HomeScreenState extends State<HomeScreen> {
   VpnStatus _status = VpnStatus.disconnected;
   TrafficStats _traffic = TrafficStats.empty();
   int? _pingMs;
+  SpeedTestProgress? _speedTestProgress;
+  SpeedTestResult? _lastSpeedTestResult;
   bool _isLoading = true;
   String _routingMode = AppConstants.routeModeSmart;
 
@@ -139,6 +142,22 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) {
       setState(() => _pingMs = ms > 0 ? ms : null);
     }
+  }
+
+  Future<void> _runSpeedTest() async {
+    if (!_status.isConnected) return;
+    await SpeedTestService.runTest(
+      onProgress: (progress) {
+        if (mounted) {
+          setState(() {
+            _speedTestProgress = progress;
+            if (!progress.isRunning && SpeedTestService.lastResult != null) {
+              _lastSpeedTestResult = SpeedTestService.lastResult;
+            }
+          });
+        }
+      },
+    );
   }
 
   Future<void> _toggleVpn() async {
@@ -258,6 +277,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     TrafficCard(
                       stats: _traffic,
                       isConnected: isConnected,
+                      speedTestProgress: _speedTestProgress,
+                      lastSpeedTestResult: _lastSpeedTestResult,
+                      onRunSpeedTest: _runSpeedTest,
                     ),
 
                     const SizedBox(height: 14),

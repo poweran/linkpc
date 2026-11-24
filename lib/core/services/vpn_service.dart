@@ -42,6 +42,12 @@ class VpnService {
     }
   }
 
+  static int _lastTotalDown = 0;
+  static int _lastTotalUp = 0;
+  static DateTime? _lastTrafficTimestamp;
+  static double _smoothedDownSpeed = 0.0;
+  static double _smoothedUpSpeed = 0.0;
+
   static void _handleNativeEvent(dynamic event) {
     if (event is Map) {
       final type = event['type'] as String?;
@@ -49,19 +55,57 @@ class VpnService {
         final stateStr = event['state'] as String? ?? 'disconnected';
         _setStatus(_parseStatus(stateStr));
       } else if (type == 'traffic') {
-        final upSpeed = (event['up_speed'] as num?)?.toInt() ?? 0;
-        final downSpeed = (event['down_speed'] as num?)?.toInt() ?? 0;
+        final rawUpSpeed = (event['up_speed'] as num?)?.toInt() ?? 0;
+        final rawDownSpeed = (event['down_speed'] as num?)?.toInt() ?? 0;
         final totalUp = (event['total_up'] as num?)?.toInt() ?? 0;
         final totalDown = (event['total_down'] as num?)?.toInt() ?? 0;
 
+        final now = DateTime.now();
+        double effectiveDownSpeed = rawDownSpeed.toDouble();
+        double effectiveUpSpeed = rawUpSpeed.toDouble();
+
+        // If native core reported 0 instantaneous speed, calculate speed from accumulated total bytes delta
+        if (_lastTrafficTimestamp != null && (_lastTotalDown > 0 || _lastTotalUp > 0)) {
+          final elapsedSec = now.difference(_lastTrafficTimestamp!).inMilliseconds / 1000.0;
+          if (elapsedSec > 0.2 && elapsedSec < 10.0) {
+            final deltaDown = totalDown >= _lastTotalDown ? (totalDown - _lastTotalDown) : 0;
+            final deltaUp = totalUp >= _lastTotalUp ? (totalUp - _lastTotalUp) : 0;
+            if (rawDownSpeed <= 0 && deltaDown > 0) {
+              effectiveDownSpeed = deltaDown / elapsedSec;
+            }
+            if (rawUpSpeed <= 0 && deltaUp > 0) {
+              effectiveUpSpeed = deltaUp / elapsedSec;
+            }
+          }
+        }
+
+        _lastTotalDown = totalDown;
+        _lastTotalUp = totalUp;
+        _lastTrafficTimestamp = now;
+
+        // Apply Exponential Moving Average (EMA) and gentle decay so speed doesn't flicker to 0 every second
+        if (effectiveDownSpeed > 0) {
+          _smoothedDownSpeed = _smoothedDownSpeed * 0.35 + effectiveDownSpeed * 0.65;
+        } else {
+          _smoothedDownSpeed = _smoothedDownSpeed * 0.55;
+          if (_smoothedDownSpeed < 256) _smoothedDownSpeed = 0;
+        }
+
+        if (effectiveUpSpeed > 0) {
+          _smoothedUpSpeed = _smoothedUpSpeed * 0.35 + effectiveUpSpeed * 0.65;
+        } else {
+          _smoothedUpSpeed = _smoothedUpSpeed * 0.55;
+          if (_smoothedUpSpeed < 256) _smoothedUpSpeed = 0;
+        }
+
         Duration duration = Duration.zero;
         if (_connectedTimestamp != null) {
-          duration = DateTime.now().difference(_connectedTimestamp!);
+          duration = now.difference(_connectedTimestamp!);
         }
 
         _currentTraffic = _currentTraffic.copyWith(
-          uploadSpeedBytesPerSec: upSpeed,
-          downloadSpeedBytesPerSec: downSpeed,
+          uploadSpeedBytesPerSec: _smoothedUpSpeed.round(),
+          downloadSpeedBytesPerSec: _smoothedDownSpeed.round(),
           totalUploadedBytes: totalUp,
           totalDownloadedBytes: totalDown,
           sessionDuration: duration,
@@ -100,6 +144,11 @@ class VpnService {
     } else if (s == VpnStatus.disconnected || s == VpnStatus.error) {
       _connectedTimestamp = null;
       _stopStatsSimulation();
+      _lastTotalDown = 0;
+      _lastTotalUp = 0;
+      _lastTrafficTimestamp = null;
+      _smoothedDownSpeed = 0.0;
+      _smoothedUpSpeed = 0.0;
       _currentTraffic = TrafficStats.empty();
       _trafficController.add(_currentTraffic);
     }
