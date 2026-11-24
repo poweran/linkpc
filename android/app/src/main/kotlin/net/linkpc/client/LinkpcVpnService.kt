@@ -69,6 +69,15 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     @Volatile
     private var lastIsConstrained: Boolean = false
 
+    // Cache UID package names to eliminate repetitive synchronous Binder IPC to PackageManagerService
+    private val uidPackageCache = java.util.concurrent.ConcurrentHashMap<Int, Pair<String, List<String>>>()
+
+    // Cache network interfaces for 1.5 seconds to prevent kernel ioctl thrashing
+    @Volatile
+    private var cachedInterfacesList: List<io.nekohasekai.libbox.NetworkInterface>? = null
+    @Volatile
+    private var lastInterfacesTime: Long = 0L
+
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             VpnEvents.log("Network", "Физическая сеть доступна: $network")
@@ -208,7 +217,11 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                         VpnEvents.log("Client", "Подключен клиент мониторинга sing-box core")
                     }
                     override fun disconnected(message: String) {
-                        VpnEvents.log("Client", "Отключен клиент мониторинга: $message")
+                        if (message.contains("context canceled", ignoreCase = true) || !isRunning) {
+                            VpnEvents.log("Client", "Клиент мониторинга штатно отключен")
+                        } else {
+                            VpnEvents.log("Client", "Отключен клиент мониторинга: $message")
+                        }
                     }
                     override fun initializeClashMode(modeList: StringIterator, currentMode: String) {}
                     override fun setDefaultLogLevel(level: Int) {}
@@ -221,10 +234,14 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                             val msg = entry?.message ?: ""
                             val level = entry?.level ?: 0
                             // In libbox: 0 = trace, 1 = debug, 2 = info, 3 = warn, 4 = error, 5 = fatal, 6 = panic
-                            // Filter out trace (0) and debug (1) noise (router pre-match, sniffing, DNS strategy)
-                            // to avoid flooding Android Looper & Flutter UI event queues
-                            if (level < 2 && !msg.contains("ERROR") && !msg.contains("WARN")) {
-                                continue
+                            // Filter out trace (0) and debug (1) noise unless it's a real ERROR/WARN
+                            // (exclude false-positive 'NOERROR' DNS responses)
+                            if (level < 2) {
+                                val isRealErr = (msg.contains("ERROR[") || msg.contains("FATAL") || msg.contains("PANIC") ||
+                                        (msg.contains("ERROR") && !msg.contains("NOERROR")))
+                                if (!isRealErr && !msg.contains("WARN")) {
+                                    continue
+                                }
                             }
                             if (msg.isNotBlank()) {
                                 VpnEvents.log("box", msg)
@@ -641,6 +658,12 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     }
 
     override fun getInterfaces(): NetworkInterfaceIterator {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val cached = cachedInterfacesList
+        if (cached != null && (now - lastInterfacesTime < 1500L)) {
+            return InterfaceArray(cached)
+        }
+
         val list = mutableListOf<io.nekohasekai.libbox.NetworkInterface>()
         try {
             val cm = connectivityManager ?: (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)
@@ -774,6 +797,8 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         } catch (e: Exception) {
             Log.w(TAG, "getInterfaces error", e)
         }
+        cachedInterfacesList = list
+        lastInterfacesTime = android.os.SystemClock.elapsedRealtime()
         return InterfaceArray(list)
     }
 
@@ -794,10 +819,19 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
                     InetSocketAddress(destinationAddress, destinationPort)
                 ) ?: Process.INVALID_UID
                 owner.userId = uid
-                if (uid != Process.INVALID_UID) {
-                    val pkgs = packageManager.getPackagesForUid(uid)
-                    owner.userName = pkgs?.firstOrNull() ?: ""
-                    owner.setAndroidPackageNames(StringArray(pkgs?.toList() ?: emptyList()))
+                if (uid > 0 && uid != Process.INVALID_UID) {
+                    val cached = uidPackageCache[uid]
+                    if (cached != null) {
+                        owner.userName = cached.first
+                        owner.setAndroidPackageNames(StringArray(cached.second))
+                    } else {
+                        val pkgs = packageManager.getPackagesForUid(uid)
+                        val pkgList = pkgs?.toList() ?: emptyList()
+                        val firstName = pkgs?.firstOrNull() ?: ""
+                        uidPackageCache[uid] = Pair(firstName, pkgList)
+                        owner.userName = firstName
+                        owner.setAndroidPackageNames(StringArray(pkgList))
+                    }
                 }
             }
         } catch (_: Exception) {}

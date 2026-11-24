@@ -138,8 +138,8 @@ object VpnEvents {
                         "type" to "traffic",
                         "up_speed" to upSpeed.toInt(),
                         "down_speed" to downSpeed.toInt(),
-                        "total_up" to totalUp.toInt(),
-                        "total_down" to totalDown.toInt()
+                        "total_up" to totalUp,
+                        "total_down" to totalDown
                     )
                 )
             } catch (_: Exception) {}

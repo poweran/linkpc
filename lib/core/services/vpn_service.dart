@@ -49,10 +49,10 @@ class VpnService {
         final stateStr = event['state'] as String? ?? 'disconnected';
         _setStatus(_parseStatus(stateStr));
       } else if (type == 'traffic') {
-        final upSpeed = event['up_speed'] as int? ?? 0;
-        final downSpeed = event['down_speed'] as int? ?? 0;
-        final totalUp = event['total_up'] as int? ?? 0;
-        final totalDown = event['total_down'] as int? ?? 0;
+        final upSpeed = (event['up_speed'] as num?)?.toInt() ?? 0;
+        final downSpeed = (event['down_speed'] as num?)?.toInt() ?? 0;
+        final totalUp = (event['total_up'] as num?)?.toInt() ?? 0;
+        final totalDown = (event['total_down'] as num?)?.toInt() ?? 0;
 
         Duration duration = Duration.zero;
         if (_connectedTimestamp != null) {
@@ -835,6 +835,7 @@ class VpnService {
   }
 
   static void _startStatsSimulation() {
+    if (Platform.isAndroid || Platform.isIOS) return; // Mobile platforms receive real telemetry from libbox
     _statsTimer?.cancel();
     _statsTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_currentStatus != VpnStatus.connected) return;

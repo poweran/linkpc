@@ -93,7 +93,8 @@ class _LogsScreenState extends State<LogsScreen> {
     if (_filter == 'error') {
       return _logs.where((l) {
         final lower = l.toLowerCase();
-        return lower.contains('error') ||
+        final hasErr = lower.contains('error') && !lower.contains('noerror');
+        return hasErr ||
             lower.contains('ошибка') ||
             lower.contains('[err]') ||
             lower.contains('fail') ||
@@ -109,7 +110,8 @@ class _LogsScreenState extends State<LogsScreen> {
 
   Color _getLineColor(String line) {
     final lower = line.toLowerCase();
-    if (lower.contains('error') || lower.contains('ошибка') || lower.contains('[err]') || lower.contains('fail')) {
+    final hasErr = lower.contains('error') && !lower.contains('noerror');
+    if (hasErr || lower.contains('ошибка') || lower.contains('[err]') || lower.contains('fail')) {
       return AppColors.error;
     }
     if (line.contains('[Network]') || line.contains('[Socket]')) {
