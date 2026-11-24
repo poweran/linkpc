@@ -112,6 +112,20 @@ jobs:
             echo "build_macos=true" >> "$GITHUB_OUTPUT"
             echo "build_ios=true" >> "$GITHUB_OUTPUT"
             echo "build_linux=true" >> "$GITHUB_OUTPUT"
+          elif echo "$TAG" | grep -qE -- '-(win|windows)$'; then
+            echo "Explicit Windows build requested via tag: $TAG"
+            echo "build_android=false" >> "$GITHUB_OUTPUT"
+            echo "build_windows=true" >> "$GITHUB_OUTPUT"
+            echo "build_macos=false" >> "$GITHUB_OUTPUT"
+            echo "build_ios=false" >> "$GITHUB_OUTPUT"
+            echo "build_linux=false" >> "$GITHUB_OUTPUT"
+          elif echo "$TAG" | grep -qE -- '-(android|apk)$'; then
+            echo "Explicit Android build requested via tag: $TAG"
+            echo "build_android=true" >> "$GITHUB_OUTPUT"
+            echo "build_windows=false" >> "$GITHUB_OUTPUT"
+            echo "build_macos=false" >> "$GITHUB_OUTPUT"
+            echo "build_ios=false" >> "$GITHUB_OUTPUT"
+            echo "build_linux=false" >> "$GITHUB_OUTPUT"
           else
             PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
             if [ -n "$PREV_TAG" ]; then
@@ -122,18 +136,32 @@ jobs:
             echo "=== Changed files since ${PREV_TAG:-init} ==="
             echo "$CHANGED"
 
+            HAS_ANDROID=$(echo "$CHANGED" | grep -q '^android/' && echo "true" || echo "false")
+            HAS_WINDOWS=$(echo "$CHANGED" | grep -q '^windows/' && echo "true" || echo "false")
             HAS_MACOS=$(echo "$CHANGED" | grep -q '^macos/' && echo "true" || echo "false")
             HAS_IOS=$(echo "$CHANGED" | grep -q '^ios/' && echo "true" || echo "false")
             HAS_LINUX=$(echo "$CHANGED" | grep -q '^linux/' && echo "true" || echo "false")
 
-            # Android and Windows are fast (<2 min) and the primary distribution targets
-            # macOS / iOS / Linux are heavy and only built if their native code changed or -all tag used
-            echo "build_android=true" >> "$GITHUB_OUTPUT"
-            echo "build_windows=true" >> "$GITHUB_OUTPUT"
+            # Smart target selection:
+            # - Build Windows only if windows/ files changed or explicitly tagged (-win / -all)
+            # - Build Android if android/ or common code changed, or if no desktop native target was touched
+            BUILD_WINDOWS="false"
+            BUILD_ANDROID="false"
+
+            if [ "$HAS_WINDOWS" = "true" ]; then
+              BUILD_WINDOWS="true"
+            fi
+
+            if [ "$HAS_ANDROID" = "true" ] || [ "$HAS_WINDOWS" = "false" ]; then
+              BUILD_ANDROID="true"
+            fi
+
+            echo "build_android=$BUILD_ANDROID" >> "$GITHUB_OUTPUT"
+            echo "build_windows=$BUILD_WINDOWS" >> "$GITHUB_OUTPUT"
             echo "build_macos=$HAS_MACOS" >> "$GITHUB_OUTPUT"
             echo "build_ios=$HAS_IOS" >> "$GITHUB_OUTPUT"
             echo "build_linux=$HAS_LINUX" >> "$GITHUB_OUTPUT"
-            echo "Plan: Android=true, Windows=true, macOS=$HAS_MACOS, iOS=$HAS_IOS, Linux=$HAS_LINUX"
+            echo "Plan: Android=$BUILD_ANDROID, Windows=$BUILD_WINDOWS, macOS=$HAS_MACOS, iOS=$HAS_IOS, Linux=$HAS_LINUX"
           fi
 
       - name: Create or Update GitHub Release Entry
