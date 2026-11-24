@@ -53,7 +53,8 @@ class VpnService {
       final type = event['type'] as String?;
       if (type == 'status') {
         final stateStr = event['state'] as String? ?? 'disconnected';
-        _setStatus(_parseStatus(stateStr));
+        final connectedTimeMs = (event['connected_time'] as num?)?.toInt();
+        _setStatus(_parseStatus(stateStr), connectedTimeMs: connectedTimeMs);
       } else if (type == 'traffic') {
         final rawUpSpeed = (event['up_speed'] as num?)?.toInt() ?? 0;
         final rawDownSpeed = (event['down_speed'] as num?)?.toInt() ?? 0;
@@ -84,21 +85,24 @@ class VpnService {
         _lastTrafficTimestamp = now;
 
         // Apply Exponential Moving Average (EMA) and gentle decay so speed doesn't flicker to 0 every second
-        if (effectiveDownSpeed > 512) {
+        if (effectiveDownSpeed > 64) {
           _smoothedDownSpeed = _smoothedDownSpeed * 0.4 + effectiveDownSpeed * 0.6;
         } else {
           _smoothedDownSpeed = _smoothedDownSpeed * 0.5;
-          if (_smoothedDownSpeed < 512) _smoothedDownSpeed = 0;
+          if (_smoothedDownSpeed < 64) _smoothedDownSpeed = 0;
         }
 
-        if (effectiveUpSpeed > 512) {
+        if (effectiveUpSpeed > 64) {
           _smoothedUpSpeed = _smoothedUpSpeed * 0.4 + effectiveUpSpeed * 0.6;
         } else {
           _smoothedUpSpeed = _smoothedUpSpeed * 0.5;
-          if (_smoothedUpSpeed < 512) _smoothedUpSpeed = 0;
+          if (_smoothedUpSpeed < 64) _smoothedUpSpeed = 0;
         }
 
         Duration duration = Duration.zero;
+        if (_connectedTimestamp == null && _currentStatus == VpnStatus.connected) {
+          _connectedTimestamp = now;
+        }
         if (_connectedTimestamp != null) {
           duration = now.difference(_connectedTimestamp!);
         }
@@ -136,11 +140,30 @@ class VpnService {
     }
   }
 
-  static void _setStatus(VpnStatus s) {
+  static void _setStatus(VpnStatus s, {int? connectedTimeMs}) {
     _currentStatus = s;
     if (s == VpnStatus.connected) {
-      _connectedTimestamp = DateTime.now();
+      if (connectedTimeMs != null && connectedTimeMs > 0) {
+        _connectedTimestamp = DateTime.fromMillisecondsSinceEpoch(connectedTimeMs);
+      } else {
+        _connectedTimestamp ??= DateTime.now();
+      }
+      final duration = _connectedTimestamp != null
+          ? DateTime.now().difference(_connectedTimestamp!)
+          : Duration.zero;
+      _currentTraffic = _currentTraffic.copyWith(sessionDuration: duration);
+      _trafficController.add(_currentTraffic);
       _startStatsSimulation();
+    } else if (s == VpnStatus.connecting) {
+      _connectedTimestamp = null;
+      _stopStatsSimulation();
+      _lastTotalDown = 0;
+      _lastTotalUp = 0;
+      _lastTrafficTimestamp = null;
+      _smoothedDownSpeed = 0.0;
+      _smoothedUpSpeed = 0.0;
+      _currentTraffic = TrafficStats.empty();
+      _trafficController.add(_currentTraffic);
     } else if (s == VpnStatus.disconnected || s == VpnStatus.error) {
       _connectedTimestamp = null;
       _stopStatsSimulation();

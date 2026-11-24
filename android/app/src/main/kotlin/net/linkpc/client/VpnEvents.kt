@@ -172,11 +172,19 @@ object VpnEvents {
         } catch (_: Exception) {}
     }
 
-    fun sendStatus(status: String) {
-        log("Status", "VPN state changed to: $status")
+    fun sendStatus(status: String, connectedTime: Long = 0L) {
+        val effectiveTime = if (connectedTime > 0) connectedTime else LinkpcVpnService.connectedTimeMillis
+        log("Status", "VPN state changed to: $status (connectedTime=$effectiveTime)")
         mainHandler.post {
             try {
-                eventSink?.success(mapOf("type" to "status", "state" to status))
+                val map = mutableMapOf<String, Any>(
+                    "type" to "status",
+                    "state" to status
+                )
+                if (status == "connected" && effectiveTime > 0) {
+                    map["connected_time"] = effectiveTime
+                }
+                eventSink?.success(map)
             } catch (_: Exception) {}
         }
     }

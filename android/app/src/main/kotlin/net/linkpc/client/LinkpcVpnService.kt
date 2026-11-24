@@ -51,6 +51,10 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             private set
 
         @Volatile
+        var connectedTimeMillis: Long = 0L
+            private set
+
+        @Volatile
         private var isLibboxSetup = false
     }
 
@@ -210,6 +214,7 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             VpnEvents.log("Core", "Запуск sing-box CommandServer с конфигурацией...")
             server.startOrReloadService(config, OverrideOptions())
             isRunning = true
+            connectedTimeMillis = System.currentTimeMillis()
 
             // Connect CommandClient to stream live sing-box logs and real traffic metrics
             val clientOptions = CommandClientOptions().apply {
@@ -220,7 +225,7 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             }
             startMonitoringClient(clientOptions)
 
-            VpnEvents.sendStatus("connected")
+            VpnEvents.sendStatus("connected", connectedTimeMillis)
             updateForegroundNotification("Шлюз linkpc активен • Трафик зашифрован")
             VpnEvents.log("Service", "Туннель linkpc успешно запущен и готов к передаче данных")
         } catch (e: Throwable) {
@@ -302,6 +307,7 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     @Synchronized
     private fun stopTunnel() {
         isRunning = false
+        connectedTimeMillis = 0L
         VpnEvents.sendStatus("disconnecting")
         VpnEvents.log("Service", "Остановка сетевого шлюза linkpc...")
 

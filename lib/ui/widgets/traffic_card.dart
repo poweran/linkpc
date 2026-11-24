@@ -59,7 +59,7 @@ class TrafficCard extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          isConnected ? Formatters.formatSpeed(stats.downloadSpeedBytesPerSec) : '0.0 KB/s',
+                          isConnected ? Formatters.formatSpeed(stats.downloadSpeedBytesPerSec) : '0.0 Кбит/с',
                           style: const TextStyle(
                             color: AppColors.textPrimary,
                             fontSize: 13,
@@ -100,7 +100,7 @@ class TrafficCard extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          isConnected ? Formatters.formatSpeed(stats.uploadSpeedBytesPerSec) : '0.0 KB/s',
+                          isConnected ? Formatters.formatSpeed(stats.uploadSpeedBytesPerSec) : '0.0 Кбит/с',
                           style: const TextStyle(
                             color: AppColors.textPrimary,
                             fontSize: 13,

@@ -83,7 +83,7 @@ class SpeedTestService {
           if (elapsedMs - lastReportMs > 180 && elapsedMs > 50) {
             lastReportMs = elapsedMs;
             final elapsedSec = elapsedMs / 1000.0;
-            final currentMbps = (receivedBytes * 8.0 / (1024 * 1024)) / elapsedSec;
+            final currentMbps = (receivedBytes * 8.0 / (1000 * 1000)) / elapsedSec;
             final prog = (receivedBytes / targetBytes).clamp(0.05, 0.95);
             onProgress(SpeedTestProgress(
               isRunning: true,
@@ -102,7 +102,7 @@ class SpeedTestService {
         sw.stop();
         final totalSec = sw.elapsedMilliseconds / 1000.0;
         final finalMbps = totalSec > 0.05
-            ? (receivedBytes * 8.0 / (1024 * 1024)) / totalSec
+            ? (receivedBytes * 8.0 / (1000 * 1000)) / totalSec
             : 0.0;
 
         final resObj = SpeedTestResult(

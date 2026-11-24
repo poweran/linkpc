@@ -12,13 +12,18 @@ class Formatters {
   }
 
   static String formatSpeed(int bytesPerSecond) {
-    if (bytesPerSecond < 512) return '0.0 KB/s';
-    if (bytesPerSecond < 1024 * 1024) {
-      final kb = bytesPerSecond / 1024.0;
-      return '${kb.toStringAsFixed(1)} KB/s';
+    if (bytesPerSecond <= 0) return '0.0 Кбит/с';
+    final bitsPerSecond = bytesPerSecond * 8.0;
+    if (bitsPerSecond < 1000 * 1000) {
+      final kbps = bitsPerSecond / 1000.0;
+      return '${kbps.toStringAsFixed(1)} Кбит/с';
     }
-    final mb = bytesPerSecond / (1024.0 * 1024.0);
-    return '${mb.toStringAsFixed(1)} MB/s';
+    if (bitsPerSecond < 1000 * 1000 * 1000) {
+      final mbps = bitsPerSecond / (1000.0 * 1000.0);
+      return '${mbps.toStringAsFixed(1)} Мбит/с';
+    }
+    final gbps = bitsPerSecond / (1000.0 * 1000.0 * 1000.0);
+    return '${gbps.toStringAsFixed(1)} Гбит/с';
   }
 
   static String formatDuration(Duration d) {

@@ -26,7 +26,7 @@ class MainActivity: FlutterActivity() {
         super.onResume()
         VpnEvents.setAppInForeground(true)
         if (LinkpcVpnService.isRunning) {
-            VpnEvents.sendStatus("connected")
+            VpnEvents.sendStatus("connected", LinkpcVpnService.connectedTimeMillis)
         }
     }
 
