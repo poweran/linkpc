@@ -1,10 +1,13 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/math/hyper_geometry.dart';
 
-/// Multidimensional CyberCard with interactive 3D perspective tilt,
-/// sci-fi corner reticle brackets, specular glassmorphic sheen,
-/// and layered volumetric depth.
+/// Multidimensional CyberCard engineered with:
+/// 1. Fresnel physical reflection optics R(θ) = R₀ + (1 - R₀)(1 - cos θ)⁵
+/// 2. Golden Ratio Φ dimensional ergonomics.
+/// 3. Damped 3D perspective spatial tilt.
 class CyberCard extends StatefulWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
@@ -68,12 +71,12 @@ class _CyberCardState extends State<CyberCard>
           onHover: (e) => _onPointerHover(e, cardSize),
           child: TweenAnimationBuilder<double>(
             tween: Tween<double>(begin: 0.0, end: _tiltX),
-            duration: const Duration(milliseconds: 160),
+            duration: const Duration(milliseconds: 140),
             curve: Curves.easeOutCubic,
             builder: (context, smoothTiltX, child) {
               return TweenAnimationBuilder<double>(
                 tween: Tween<double>(begin: 0.0, end: _tiltY),
-                duration: const Duration(milliseconds: 160),
+                duration: const Duration(milliseconds: 140),
                 curve: Curves.easeOutCubic,
                 builder: (context, smoothTiltY, _) {
                   // 3D Perspective Matrix Tilt
@@ -82,55 +85,59 @@ class _CyberCardState extends State<CyberCard>
                     ..rotateX(-smoothTiltY * 0.065)
                     ..rotateY(smoothTiltX * 0.065);
 
+                  // Physical Fresnel reflection calculation
+                  final tiltMagnitude = sqrt(smoothTiltX * smoothTiltX + smoothTiltY * smoothTiltY).clamp(0.0, 1.0);
+                  const r0 = 0.08; // Base glass reflectance at normal incidence
+                  final cosTheta = 1.0 - tiltMagnitude * 0.5;
+                  final fresnelReflection = r0 + (1.0 - r0) * pow(1.0 - cosTheta, 5.0).toDouble();
+
                   return Transform(
                     alignment: Alignment.center,
                     transform: matrix,
                     child: Container(
                       margin: widget.margin,
                       decoration: BoxDecoration(
-                        // Deep Volumetric Frosted Glass
+                        // Volumetric Frosted Obsidian Glass
                         gradient: LinearGradient(
-                          begin: Alignment(-0.8 - smoothTiltX * 0.3, -1.0 - smoothTiltY * 0.3),
+                          begin: Alignment(-0.8 - smoothTiltX * 0.4, -1.0 - smoothTiltY * 0.4),
                           end: const Alignment(0.8, 1.0),
                           colors: [
                             Color.lerp(
                               const Color(0xF210192A),
-                              AppColors.cyberCyan.withOpacity(0.08),
-                              _isHovered ? 0.4 : 0.0,
+                              AppColors.cyberCyan.withOpacity(0.12),
+                              (_isHovered ? 0.35 : 0.0) + fresnelReflection,
                             )!,
-                            const Color(0xF7080D17),
-                            const Color(0xFA05070E),
+                            const Color(0xF7070C15),
+                            const Color(0xFA04060C),
                           ],
-                          stops: const [0.0, 0.6, 1.0],
+                          stops: const [0.0, 0.55, 1.0],
                         ),
                         // Border with Specular Dynamic Glow
                         border: Border.all(
                           color: _isHovered
-                              ? Color.lerp(activeBorderColor, AppColors.cyberCyan, 0.5)!
+                              ? Color.lerp(activeBorderColor, AppColors.cyberCyan, 0.5 + fresnelReflection * 0.5)!
                               : activeBorderColor,
                           width: _isHovered ? 1.2 : 1.0,
                         ),
                         boxShadow: [
-                          // Base ambient shadow
                           const BoxShadow(
-                            color: Color(0x88000000),
+                            color: Color(0x99000000),
                             offset: Offset(0, 10),
                             blurRadius: 28,
                             spreadRadius: -2,
                           ),
-                          // Subtle neon aura on hover or active
                           if (_isHovered)
                             BoxShadow(
-                              color: AppColors.cyberCyan.withOpacity(0.12),
+                              color: AppColors.cyberCyan.withOpacity(0.14 + fresnelReflection * 0.2),
                               offset: Offset(smoothTiltX * 6, smoothTiltY * 6),
-                              blurRadius: 20,
+                              blurRadius: 24,
                               spreadRadius: 1,
                             ),
                         ],
                       ),
                       child: Stack(
                         children: [
-                          // Custom Painter for Sci-Fi Corner Reticles & Laser Brackets
+                          // Precision Corner Reticles
                           if (widget.showCornerReticles)
                             Positioned.fill(
                               child: CustomPaint(
@@ -142,7 +149,7 @@ class _CyberCardState extends State<CyberCard>
                               ),
                             ),
 
-                          // Top Specular Light Bleed
+                          // Top Specular Horizon Bleed
                           Positioned(
                             top: 0,
                             left: 0,
@@ -153,8 +160,8 @@ class _CyberCardState extends State<CyberCard>
                                 gradient: LinearGradient(
                                   colors: [
                                     Colors.transparent,
-                                    AppColors.cyberCyan.withOpacity(_isHovered ? 0.8 : 0.45),
-                                    AppColors.neonViolet.withOpacity(_isHovered ? 0.6 : 0.25),
+                                    AppColors.cyberCyan.withOpacity(_isHovered ? 0.85 : 0.45),
+                                    AppColors.neonViolet.withOpacity(_isHovered ? 0.65 : 0.25),
                                     Colors.transparent,
                                   ],
                                   stops: const [0.0, 0.25, 0.75, 1.0],
@@ -163,7 +170,7 @@ class _CyberCardState extends State<CyberCard>
                             ),
                           ),
 
-                          // Interactive InkWell & Main Content
+                          // Interactive Touch Surface & Main Content
                           Material(
                             color: Colors.transparent,
                             child: InkWell(
@@ -190,7 +197,7 @@ class _CyberCardState extends State<CyberCard>
   }
 }
 
-/// Sci-Fi corner reticles painter for high-tech holographic HUD framing.
+/// Precision Sci-Fi Reticles with Golden Ratio length Φ × 5 ≈ 8.09 dp.
 class _CyberCardReticlesPainter extends CustomPainter {
   final Color reticleColor;
 
@@ -203,7 +210,7 @@ class _CyberCardReticlesPainter extends CustomPainter {
       ..strokeWidth = 1.4
       ..style = PaintingStyle.stroke;
 
-    const cornerLength = 8.0;
+    const cornerLength = MathConstants.phi * 5.0; // 8.09 dp
 
     // Top-Left Reticle
     canvas.drawLine(const Offset(0, 0), const Offset(cornerLength, 0), paint);

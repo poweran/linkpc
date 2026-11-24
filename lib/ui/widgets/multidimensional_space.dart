@@ -2,10 +2,13 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/math/hyper_geometry.dart';
 import '../../core/models/vpn_state.dart';
 
-/// Multidimensional interactive space background with 3D perspective grid,
-/// floating quantum particles, volumetric energy nebulas, and pointer parallax.
+/// True Multidimensional Space Background:
+/// 1. Riemannian curved spacetime manifold with potential well geodesics.
+/// 2. Phase-space Clifford Strange Attractor quantum dust field.
+/// 3. Interactive pointer gravitational perturbation.
 class MultidimensionalSpace extends StatefulWidget {
   final Widget child;
   final VpnStatus status;
@@ -25,41 +28,59 @@ class MultidimensionalSpace extends StatefulWidget {
 class _MultidimensionalSpaceState extends State<MultidimensionalSpace>
     with SingleTickerProviderStateMixin {
   late final AnimationController _animController;
-  final List<_QuantumParticle> _particles = [];
-  final Random _rng = Random(42);
+  final List<Vector4D> _attractorParticles = [];
 
-  double _tiltX = 0.0;
-  double _tiltY = 0.0;
-  Offset _pointerOffset = Offset.zero;
+  double _gravityWellX = 0.5;
+  double _gravityWellY = 0.5;
+  double _targetGravityX = 0.5;
+  double _targetGravityY = 0.5;
 
   @override
   void initState() {
     super.initState();
     _animController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 12),
+      duration: const Duration(seconds: 16),
     )..repeat();
 
-    _initParticles();
+    _initCliffordAttractor();
   }
 
-  void _initParticles() {
-    _particles.clear();
-    const count = 46;
+  /// Generate points on the Clifford Strange Attractor:
+  /// x_{n+1} = sin(a y_n) + c cos(a x_n)
+  /// y_{n+1} = sin(b x_n) + d cos(b y_n)
+  void _initCliffordAttractor() {
+    _attractorParticles.clear();
+    const a = -1.4;
+    const b = 1.6;
+    const c = 1.0;
+    const d = 0.7;
+
+    double x = 0.1;
+    double y = 0.1;
+
+    // Settle onto the attractor attractor manifold
+    for (int i = 0; i < 100; i++) {
+      final nx = sin(a * y) + c * cos(a * x);
+      final ny = sin(b * x) + d * cos(b * y);
+      x = nx;
+      y = ny;
+    }
+
+    const count = 72;
     for (int i = 0; i < count; i++) {
-      _particles.add(
-        _QuantumParticle(
-          x: _rng.nextDouble(),
-          y: _rng.nextDouble(),
-          z: _rng.nextDouble() * 0.8 + 0.2, // Depth factor (0.2 far to 1.0 close)
-          size: _rng.nextDouble() * 2.2 + 0.8,
-          speed: _rng.nextDouble() * 0.0008 + 0.0004,
-          baseAlpha: _rng.nextDouble() * 0.5 + 0.3,
-          colorHue: i % 3 == 0
-              ? AppColors.cyberCyan
-              : (i % 3 == 1 ? AppColors.neonViolet : AppColors.neonEmerald),
-        ),
-      );
+      final nx = sin(a * y) + c * cos(a * x);
+      final ny = sin(b * x) + d * cos(b * y);
+      x = nx;
+      y = ny;
+
+      // Map to normalized [0, 1] bounds with depth z and phase offset w
+      final normX = (x + 2.5) / 5.0;
+      final normY = (y + 2.5) / 5.0;
+      final depth = (i / count);
+      final phase = (i * MathConstants.invPhi) % 1.0;
+
+      _attractorParticles.add(Vector4D(normX, normY, depth, phase));
     }
   }
 
@@ -71,13 +92,9 @@ class _MultidimensionalSpaceState extends State<MultidimensionalSpace>
 
   void _onPointerHover(PointerHoverEvent event, Size size) {
     if (!widget.enableParallax || size.width == 0 || size.height == 0) return;
-    final normalizedX = (event.localPosition.dx / size.width - 0.5) * 2.0;
-    final normalizedY = (event.localPosition.dy / size.height - 0.5) * 2.0;
-
     setState(() {
-      _tiltX = normalizedX.clamp(-1.0, 1.0);
-      _tiltY = normalizedY.clamp(-1.0, 1.0);
-      _pointerOffset = event.localPosition;
+      _targetGravityX = (event.localPosition.dx / size.width).clamp(0.05, 0.95);
+      _targetGravityY = (event.localPosition.dy / size.height).clamp(0.05, 0.95);
     });
   }
 
@@ -95,26 +112,26 @@ class _MultidimensionalSpaceState extends State<MultidimensionalSpace>
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // Living Multidimensional Universe Canvas
               AnimatedBuilder(
                 animation: _animController,
                 builder: (context, _) {
+                  // Smoothly interpolate gravity well toward cursor
+                  _gravityWellX += (_targetGravityX - _gravityWellX) * 0.08;
+                  _gravityWellY += (_targetGravityY - _gravityWellY) * 0.08;
+
                   return CustomPaint(
                     size: size,
-                    painter: _MultidimensionalSpacePainter(
+                    painter: _RiemannianManifoldPainter(
                       progress: _animController.value,
-                      particles: _particles,
+                      particles: _attractorParticles,
+                      gravityX: _gravityWellX,
+                      gravityY: _gravityWellY,
                       isConnected: isConnected,
                       isBusy: isBusy,
-                      tiltX: _tiltX,
-                      tiltY: _tiltY,
-                      pointerOffset: _pointerOffset,
                     ),
                   );
                 },
               ),
-
-              // Foreground Content
               widget.child,
             ],
           ),
@@ -124,254 +141,244 @@ class _MultidimensionalSpaceState extends State<MultidimensionalSpace>
   }
 }
 
-class _QuantumParticle {
-  double x;
-  double y;
-  final double z; // 3D depth layer
-  final double size;
-  final double speed;
-  final double baseAlpha;
-  final Color colorHue;
-
-  _QuantumParticle({
-    required this.x,
-    required this.y,
-    required this.z,
-    required this.size,
-    required this.speed,
-    required this.baseAlpha,
-    required this.colorHue,
-  });
-}
-
-class _MultidimensionalSpacePainter extends CustomPainter {
+/// Custom painter for Riemannian curved spacetime manifold and Clifford attractor dust.
+class _RiemannianManifoldPainter extends CustomPainter {
   final double progress;
-  final List<_QuantumParticle> particles;
+  final List<Vector4D> particles;
+  final double gravityX;
+  final double gravityY;
   final bool isConnected;
   final bool isBusy;
-  final double tiltX;
-  final double tiltY;
-  final Offset pointerOffset;
 
-  _MultidimensionalSpacePainter({
+  _RiemannianManifoldPainter({
     required this.progress,
     required this.particles,
+    required this.gravityX,
+    required this.gravityY,
     required this.isConnected,
     required this.isBusy,
-    required this.tiltX,
-    required this.tiltY,
-    required this.pointerOffset,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final width = size.width;
-    final height = size.height;
+    final w = size.width;
+    final h = size.height;
 
-    // 1. Deep Space Base
-    final bgPaint = Paint()
+    // 1. Vacuum Void Canvas
+    final voidPaint = Paint()
       ..shader = const LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
         colors: [
-          AppColors.voidBlack,
+          Color(0xFF020408),
           AppColors.background,
-          Color(0xFF040711),
+          Color(0xFF03060E),
         ],
-      ).createShader(Rect.fromLTWH(0, 0, width, height));
-    canvas.drawRect(Rect.fromLTWH(0, 0, width, height), bgPaint);
+      ).createShader(Rect.fromLTWH(0, 0, w, h));
+    canvas.drawRect(Rect.fromLTWH(0, 0, w, h), voidPaint);
 
-    // 2. Volumetric Multidimensional Nebulas
-    _drawVolumetricNebula(canvas, size);
+    // 2. Gravitational Singularity Bloom
+    _drawGravitationalLensing(canvas, size);
 
-    // 3. 3D Perspective Hyperspace Grid (Bottom & Horizon)
-    _drawPerspectiveGrid(canvas, size);
+    // 3. Riemannian Curved Spacetime Coordinate Geodesics
+    _drawRiemannianGeodesics(canvas, size);
 
-    // 4. Floating Quantum Particles & Data Streams
-    _drawQuantumParticles(canvas, size);
+    // 4. Clifford Strange Attractor Quantum Dust
+    _drawAttractorFilaments(canvas, size);
 
-    // 5. Subtle Holographic Vignette & Scanlines
-    _drawHolographicVignette(canvas, size);
+    // 5. Optical Atmosphere Fade
+    _drawAtmosphericVignette(canvas, size);
   }
 
-  void _drawVolumetricNebula(Canvas canvas, Size size) {
-    final centerPulse = sin(progress * 2 * pi) * 0.15 + 0.85;
+  void _drawGravitationalLensing(Canvas canvas, Size size) {
+    final cx = size.width * 0.5;
+    final cy = size.height * 0.28;
 
-    // Primary Core Nebula (Center / slightly upper behind power button)
-    final coreCenter = Offset(
-      size.width * 0.5 + (tiltX * 18.0),
-      size.height * 0.28 + (tiltY * 18.0),
-    );
-
-    final coreColor = isConnected
+    final primaryColor = isConnected
         ? AppColors.neonEmerald
         : (isBusy ? AppColors.cyberCyan : AppColors.deepCyan);
 
-    final coreGradient = RadialGradient(
+    final pulse = sin(progress * MathConstants.tau) * 0.15 + 0.85;
+
+    // Harmonic radial breathing field
+    final bloomGradient = RadialGradient(
       center: Alignment.center,
       radius: 0.85,
       colors: [
-        coreColor.withOpacity(isConnected ? 0.18 * centerPulse : 0.09 * centerPulse),
-        AppColors.neonViolet.withOpacity(0.06 * centerPulse),
+        primaryColor.withOpacity((isConnected ? 0.22 : (isBusy ? 0.18 : 0.08)) * pulse),
+        AppColors.neonViolet.withOpacity(0.05 * pulse),
         Colors.transparent,
       ],
       stops: const [0.0, 0.45, 1.0],
     );
 
-    final corePaint = Paint()
-      ..shader = coreGradient.createShader(
-        Rect.fromCircle(center: coreCenter, radius: size.width * 0.72),
+    final bloomPaint = Paint()
+      ..shader = bloomGradient.createShader(
+        Rect.fromCircle(center: Offset(cx, cy), radius: size.width * 0.75),
       );
-    canvas.drawCircle(coreCenter, size.width * 0.72, corePaint);
-
-    // Secondary Nebula (Bottom Right Quantum Void)
-    final subCenter = Offset(size.width * 0.85, size.height * 0.8);
-    final subPaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          (isConnected ? AppColors.cyberCyan : AppColors.neonViolet).withOpacity(0.07),
-          Colors.transparent,
-        ],
-      ).createShader(Rect.fromCircle(center: subCenter, radius: size.width * 0.55));
-    canvas.drawCircle(subCenter, size.width * 0.55, subPaint);
+    canvas.drawCircle(Offset(cx, cy), size.width * 0.75, bloomPaint);
   }
 
-  void _drawPerspectiveGrid(Canvas canvas, Size size) {
-    final horizonY = size.height * 0.58;
+  void _drawRiemannianGeodesics(Canvas canvas, Size size) {
+    final horizonY = size.height * 0.52;
     final bottomY = size.height;
     final gridHeight = bottomY - horizonY;
     if (gridHeight <= 0) return;
 
-    final vanishingPoint = Offset(
-      size.width * 0.5 + (tiltX * 36.0),
-      horizonY - 20.0,
-    );
-
-    // Perspective Lines radiating from vanishing point
     final linePaint = Paint()
-      ..strokeWidth = 1.0
-      ..style = PaintingStyle.stroke;
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
 
-    final rayColor = isConnected
-        ? AppColors.neonEmerald
-        : (isBusy ? AppColors.cyberCyan : AppColors.skyBlue);
+    final waveSpeed = progress * MathConstants.tau * (isConnected ? 2.5 : 1.0);
+    final primaryAccent = isConnected ? AppColors.neonEmerald : AppColors.cyberCyan;
 
-    const numRays = 14;
-    for (int i = 0; i <= numRays; i++) {
-      final t = i / numRays;
-      final bottomX = (t - 0.5) * size.width * 2.2 + (size.width * 0.5);
+    // Grid resolution
+    const int uLines = 16; // Radial longitude geodesics
+    const int vRungs = 11; // Latitudinal distance contours
 
-      final alpha = (1.0 - (t - 0.5).abs() * 1.5).clamp(0.05, 0.45);
-      linePaint.color = rayColor.withOpacity(alpha * (isConnected ? 0.35 : 0.2));
+    // Draw Longitude Geodesics bending around the gravitational center
+    for (int i = 0; i <= uLines; i++) {
+      final u = i / uLines;
+      final path = Path();
+      bool first = true;
 
-      canvas.drawLine(vanishingPoint, Offset(bottomX, bottomY), linePaint);
-    }
+      for (int step = 0; step <= 24; step++) {
+        final t = step / 24.0;
+        final depthCurve = pow(t, 2.2).toDouble();
+        final currentY = horizonY + depthCurve * gridHeight;
 
-    // Moving Horizontal Rungs (Hyperspace warp motion forward)
-    final speedMultiplier = isConnected ? 2.5 : (isBusy ? 4.0 : 0.8);
-    final offsetProg = (progress * speedMultiplier) % 1.0;
+        // Perspective fan-out
+        final baseX = (u - 0.5) * (size.width * (1.2 + depthCurve * 1.8)) + (size.width * 0.5);
 
-    const numRungs = 9;
-    for (int i = 0; i < numRungs; i++) {
-      final rungT = ((i + offsetProg) / numRungs) % 1.0;
-      // Exponential perspective curve for genuine 3D depth
-      final yCurve = pow(rungT, 2.4).toDouble();
-      final currentY = horizonY + yCurve * gridHeight;
+        // Curvature perturbation from interactive gravity well
+        final dx = baseX - (gravityX * size.width);
+        final dy = currentY - (gravityY * size.height);
+        final distSq = (dx * dx + dy * dy) / (size.width * size.width);
+        final wellPull = exp(-distSq * 9.0) * 18.0 * (1.0 - depthCurve * 0.4);
 
-      final rungAlpha = (yCurve * (1.0 - yCurve * 0.2)).clamp(0.0, 1.0);
-      linePaint.color = rayColor.withOpacity(rungAlpha * (isConnected ? 0.4 : 0.22));
-      linePaint.strokeWidth = 0.8 + yCurve * 1.4;
+        // Harmonic wave oscillation along geodesic
+        final waveZ = sin(depthCurve * 8.0 - waveSpeed + u * MathConstants.tau) * 3.5 * depthCurve;
 
-      // Draw horizontal rung across perspective bounds
-      final spanHalf = (yCurve * 1.4 + 0.15) * size.width * 0.8;
-      final centerX = size.width * 0.5 + (tiltX * 24.0 * (1 - yCurve));
+        final px = baseX - (dx / (sqrt(distSq) + 0.1) * wellPull * 0.35);
+        final py = currentY + waveZ + (wellPull * 0.6);
 
-      canvas.drawLine(
-        Offset((centerX - spanHalf).clamp(0, size.width), currentY),
-        Offset((centerX + spanHalf).clamp(0, size.width), currentY),
-        linePaint,
-      );
-    }
-
-    // Horizon glowing boundary line
-    final horizonPaint = Paint()
-      ..shader = LinearGradient(
-        colors: [
-          Colors.transparent,
-          rayColor.withOpacity(isConnected ? 0.5 : 0.25),
-          rayColor.withOpacity(isConnected ? 0.8 : 0.4),
-          rayColor.withOpacity(isConnected ? 0.5 : 0.25),
-          Colors.transparent,
-        ],
-      ).createShader(Rect.fromLTWH(0, horizonY - 1, size.width, 2))
-      ..strokeWidth = 1.2;
-    canvas.drawLine(Offset(0, horizonY), Offset(size.width, horizonY), horizonPaint);
-  }
-
-  void _drawQuantumParticles(Canvas canvas, Size size) {
-    final particlePaint = Paint()..style = PaintingStyle.fill;
-    final speedFactor = isConnected ? 2.8 : (isBusy ? 4.0 : 1.0);
-
-    for (final p in particles) {
-      // Movement with depth-based speed
-      p.y -= p.speed * speedFactor * p.z;
-      if (p.y < 0.0) {
-        p.y = 1.0;
-        p.x = (p.x + (tiltX * 0.1)) % 1.0;
+        if (first) {
+          path.moveTo(px, py);
+          first = false;
+        } else {
+          path.lineTo(px, py);
+        }
       }
 
-      // Parallax shift based on particle depth Z
-      final px = (p.x * size.width + (tiltX * p.z * 32.0)) % size.width;
-      final py = (p.y * size.height + (tiltY * p.z * 24.0)) % size.height;
+      final centerDist = (u - 0.5).abs();
+      final alpha = (1.0 - centerDist * 1.6).clamp(0.04, 0.38);
 
-      final pColor = isConnected && p.colorHue != AppColors.neonEmerald
-          ? AppColors.neonEmerald
-          : p.colorHue;
+      linePaint.color = primaryAccent.withOpacity(alpha * (isConnected ? 0.6 : 0.35));
+      linePaint.strokeWidth = 0.9;
+      canvas.drawPath(path, linePaint);
+    }
 
-      final dynamicAlpha = (p.baseAlpha * (0.6 + sin((progress * 4 * pi) + p.x * 10) * 0.4))
-          .clamp(0.0, 1.0);
+    // Draw Latitudinal Distance Contours (Curved Horizon Rungs)
+    final flowOffset = (progress * (isConnected ? 2.0 : 0.8)) % 1.0;
 
-      particlePaint.color = pColor.withOpacity(dynamicAlpha * p.z);
-      final radius = p.size * p.z;
+    for (int j = 0; j < vRungs; j++) {
+      final rungT = ((j + flowOffset) / vRungs) % 1.0;
+      final depthCurve = pow(rungT, 2.2).toDouble();
+      final currentY = horizonY + depthCurve * gridHeight;
 
+      final path = Path();
+      bool first = true;
+
+      const segments = 24;
+      for (int s = 0; s <= segments; s++) {
+        final st = s / segments;
+        final baseX = st * size.width;
+
+        final dx = baseX - (gravityX * size.width);
+        final dy = currentY - (gravityY * size.height);
+        final distSq = (dx * dx + dy * dy) / (size.width * size.width);
+        final wellPull = exp(-distSq * 9.0) * 18.0;
+
+        final waveZ = cos(st * MathConstants.tau * 2.0 - waveSpeed) * 3.0 * depthCurve;
+        final py = currentY + waveZ + (wellPull * 0.6);
+
+        if (first) {
+          path.moveTo(baseX, py);
+          first = false;
+        } else {
+          path.lineTo(baseX, py);
+        }
+      }
+
+      final alpha = (depthCurve * (1.0 - depthCurve * 0.25)).clamp(0.0, 1.0);
+      linePaint.color = primaryAccent.withOpacity(alpha * (isConnected ? 0.45 : 0.22));
+      linePaint.strokeWidth = 0.8 + depthCurve * 1.2;
+      canvas.drawPath(path, linePaint);
+    }
+  }
+
+  void _drawAttractorFilaments(Canvas canvas, Size size) {
+    final particlePaint = Paint()..style = PaintingStyle.fill;
+    final primary = isConnected ? AppColors.neonEmerald : AppColors.cyberCyan;
+    final speed = progress * MathConstants.tau * (isConnected ? 1.8 : 0.8);
+
+    for (int i = 0; i < particles.length; i++) {
+      final p = particles[i];
+
+      // Evolve phase angle along the attractor trajectory
+      final orbitAngle = speed * (1.0 - p.z * 0.5) + p.w * MathConstants.tau;
+      final orbitRadius = (0.2 + p.z * 0.35) * size.width;
+
+      final cx = size.width * 0.5;
+      final cy = size.height * 0.32;
+
+      final px = cx + cos(orbitAngle) * orbitRadius * (0.8 + p.x * 0.4);
+      final py = cy + sin(orbitAngle) * orbitRadius * (0.5 + p.y * 0.4);
+
+      // Depth luminance
+      final alpha = (sin(orbitAngle * 2.0) * 0.35 + 0.65) * p.z;
+      particlePaint.color = (i % 2 == 0 ? primary : AppColors.neonViolet).withOpacity(alpha.clamp(0.1, 0.85));
+
+      final radius = 1.0 + p.z * 1.8;
       canvas.drawCircle(Offset(px, py), radius, particlePaint);
 
-      // Light trail for connected high-speed state
-      if (isConnected && p.z > 0.5) {
-        final trailPaint = Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.transparent,
-              pColor.withOpacity(dynamicAlpha * 0.6),
-            ],
-          ).createShader(Rect.fromLTWH(px - 1, py, 2, radius * 6))
-          ..strokeWidth = radius * 0.8;
-        canvas.drawLine(Offset(px, py), Offset(px, py + radius * 6), trailPaint);
+      // Connective manifold filament lines between adjacent phase points
+      if (i > 0 && i % 3 == 0) {
+        final prev = particles[i - 1];
+        final prevAngle = speed * (1.0 - prev.z * 0.5) + prev.w * MathConstants.tau;
+        final prevR = (0.2 + prev.z * 0.35) * size.width;
+        final ppx = cx + cos(prevAngle) * prevR * (0.8 + prev.x * 0.4);
+        final ppy = cy + sin(prevAngle) * prevR * (0.5 + prev.y * 0.4);
+
+        final dist = (px - ppx) * (px - ppx) + (py - ppy) * (py - ppy);
+        if (dist < 4500) {
+          final filamentPaint = Paint()
+            ..color = primary.withOpacity((alpha * 0.25).clamp(0.02, 0.4))
+            ..strokeWidth = 0.6;
+          canvas.drawLine(Offset(px, py), Offset(ppx, ppy), filamentPaint);
+        }
       }
     }
   }
 
-  void _drawHolographicVignette(Canvas canvas, Size size) {
-    // Top and bottom edge darkening for cinematic multidimensional focus
+  void _drawAtmosphericVignette(Canvas canvas, Size size) {
     final vignettePaint = Paint()
       ..shader = const LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        stops: [0.0, 0.08, 0.88, 1.0],
+        stops: [0.0, 0.1, 0.86, 1.0],
         colors: [
-          Color(0xDD030508),
+          Color(0xF0020408),
           Colors.transparent,
           Colors.transparent,
-          Color(0xF0030508),
+          Color(0xF8020408),
         ],
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
     canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), vignettePaint);
   }
 
   @override
-  bool shouldRepaint(covariant _MultidimensionalSpacePainter oldDelegate) {
-    return true; // continuous animation for living cosmic backdrop
+  bool shouldRepaint(covariant _RiemannianManifoldPainter oldDelegate) {
+    return true;
   }
 }

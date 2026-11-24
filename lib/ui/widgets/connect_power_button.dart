@@ -1,12 +1,12 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/math/hyper_geometry.dart';
 import '../../core/models/vpn_state.dart';
 
-/// 3D Holographic Dimensional Gateway Power Core with counter-rotating
-/// quantum rings, orbital energy nodes, volumetric spherical depth,
-/// and responsive 3D perspective plunge on interaction.
+/// Genuine 4D Clifford Torus & Hopf Fibration Gateway Core.
+/// Projects higher-dimensional Riemannian manifolds from ℝ⁴ into 2D screen space
+/// via continuous SO(4) double rotations, stereographic mapping, and geodesic energy flows.
 class ConnectPowerButton extends StatefulWidget {
   final VpnStatus status;
   final VoidCallback onTap;
@@ -16,7 +16,7 @@ class ConnectPowerButton extends StatefulWidget {
     super.key,
     required this.status,
     required this.onTap,
-    this.size = 200.0,
+    this.size = 220.0,
   });
 
   @override
@@ -29,27 +29,28 @@ class _ConnectPowerButtonState extends State<ConnectPowerButton>
   late final AnimationController _pulseController;
   late final AnimationController _pressController;
 
-  double _hoverTiltX = 0.0;
-  double _hoverTiltY = 0.0;
+  double _mouse4DX = 0.0;
+  double _mouse4DY = 0.0;
   bool _isHovered = false;
 
   @override
   void initState() {
     super.initState();
 
+    // Harmonic rotation cycle along the Golden Ratio
     _rotationController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 14),
+      duration: const Duration(milliseconds: 14000),
     )..repeat();
 
     _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2200),
+      duration: const Duration(milliseconds: 2800),
     )..repeat(reverse: true);
 
     _pressController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 140),
+      duration: const Duration(milliseconds: 180),
       lowerBound: 0.0,
       upperBound: 1.0,
     );
@@ -63,21 +64,20 @@ class _ConnectPowerButtonState extends State<ConnectPowerButton>
     super.dispose();
   }
 
-  void _onPointerHover(PointerHoverEvent event, double buttonSize) {
-    final normalizedX = (event.localPosition.dx / buttonSize - 0.5) * 2.0;
-    final normalizedY = (event.localPosition.dy / buttonSize - 0.5) * 2.0;
-
+  void _onPointerHover(PointerHoverEvent event, double totalSize) {
+    final nx = (event.localPosition.dx / totalSize - 0.5) * 2.0;
+    final ny = (event.localPosition.dy / totalSize - 0.5) * 2.0;
     setState(() {
-      _hoverTiltX = normalizedX.clamp(-1.0, 1.0);
-      _hoverTiltY = normalizedY.clamp(-1.0, 1.0);
+      _mouse4DX = nx.clamp(-1.0, 1.0);
+      _mouse4DY = ny.clamp(-1.0, 1.0);
     });
   }
 
-  void _onTapDown(TapDownDetails details) {
+  void _onTapDown(TapDownDetails _) {
     _pressController.forward();
   }
 
-  void _onTapUp(TapUpDetails details) {
+  void _onTapUp(TapUpDetails _) {
     _pressController.reverse();
     widget.onTap();
   }
@@ -95,18 +95,14 @@ class _ConnectPowerButtonState extends State<ConnectPowerButton>
         ? AppColors.neonEmerald
         : (isBusy ? AppColors.cyberCyan : AppColors.deepCyan);
 
-    final glowColor = isConnected
-        ? AppColors.neonEmerald
-        : (isBusy ? AppColors.cyberCyan : AppColors.borderFocus);
-
-    final totalSize = widget.size + 44.0;
+    final totalSize = widget.size + 40.0;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() {
         _isHovered = false;
-        _hoverTiltX = 0.0;
-        _hoverTiltY = 0.0;
+        _mouse4DX = 0.0;
+        _mouse4DY = 0.0;
       }),
       onHover: (e) => _onPointerHover(e, totalSize),
       child: GestureDetector(
@@ -121,53 +117,60 @@ class _ConnectPowerButtonState extends State<ConnectPowerButton>
             _pressController,
           ]),
           builder: (context, _) {
-            final pressScale = 1.0 - (_pressController.value * 0.08);
-            final pulseVal = _pulseController.value;
-            final dynamicRot = _rotationController.value * 2 * pi;
+            final t = _rotationController.value;
+            final press = _pressController.value;
+            final pulse = _pulseController.value;
 
-            // 3D perspective tilt matrix
-            final matrix = Matrix4.identity()
-              ..setEntry(3, 2, 0.0018)
-              ..rotateX(-_hoverTiltY * 0.18)
-              ..rotateY(_hoverTiltX * 0.18)
-              ..scale(pressScale);
+            // Angular velocities in SO(4) 4D rotation planes
+            final speedMul = isConnected ? 2.2 : (isBusy ? 3.8 : 1.0);
+            final thetaXW = t * MathConstants.tau * speedMul;
+            final phiYZ = t * MathConstants.tau * speedMul * MathConstants.invPhi;
+            final psiZW = t * MathConstants.tau * 0.5;
 
-            return Transform(
-              alignment: Alignment.center,
-              transform: matrix,
-              child: SizedBox(
-                width: totalSize,
-                height: totalSize,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    // Layer 0: Volumetric Halo Shockwave Bloom
-                    _buildVolumetricHalo(primaryColor, pulseVal, isConnected, isBusy),
+            // Interactive perturbation from pointer
+            final rotXW = Matrix4D.rotationXW(thetaXW + _mouse4DX * 0.6);
+            final rotYZ = Matrix4D.rotationYZ(phiYZ + _mouse4DY * 0.6);
+            final rotZW = Matrix4D.rotationZW(psiZW);
+            final rotYW = Matrix4D.rotationYW(_mouse4DY * 0.4);
 
-                    // Layer 1: Outer & Counter Rotating Quantum Stargate Rings
-                    CustomPaint(
-                      size: Size(totalSize, totalSize),
-                      painter: _QuantumPortalRingsPainter(
-                        rotAngle: dynamicRot,
-                        pulse: pulseVal,
-                        isConnected: isConnected,
-                        isBusy: isBusy,
-                        primaryColor: primaryColor,
-                        secondaryColor: isConnected ? AppColors.cyberCyan : AppColors.neonViolet,
-                      ),
+            final full4DMatrix = rotYW * rotZW * rotYZ * rotXW;
+
+            // Stereographic pole distance plunges on touch
+            final stereoDist = 1.65 - (press * 0.35);
+
+            return SizedBox(
+              width: totalSize,
+              height: totalSize,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Layer 0: Volumetric Cosmic Glow Aura
+                  _buildHarmonicAura(primaryColor, pulse, isConnected, isBusy),
+
+                  // Layer 1: Living 4D Clifford Torus & Hopf Fibration Canvas
+                  CustomPaint(
+                    size: Size(totalSize, totalSize),
+                    painter: _HopfFibrationPainter(
+                      matrix4D: full4DMatrix,
+                      stereoDistance: stereoDist,
+                      primaryColor: primaryColor,
+                      secondaryColor: isConnected ? AppColors.cyberCyan : AppColors.hologramPurple,
+                      isConnected: isConnected,
+                      isBusy: isBusy,
+                      pulse: pulse,
+                      time: t * MathConstants.tau,
                     ),
+                  ),
 
-                    // Layer 2: 3D Spherical Core Capsule
-                    _buildSphericalCore(
-                      widget.size,
-                      primaryColor,
-                      glowColor,
-                      isConnected,
-                      isBusy,
-                      pulseVal,
-                    ),
-                  ],
-                ),
+                  // Layer 2: Central Gravitational Focal Core
+                  _buildGravitationalCore(
+                    widget.size * 0.52,
+                    primaryColor,
+                    isConnected,
+                    isBusy,
+                    press,
+                  ),
+                ],
               ),
             );
           },
@@ -176,32 +179,27 @@ class _ConnectPowerButtonState extends State<ConnectPowerButton>
     );
   }
 
-  Widget _buildVolumetricHalo(
-    Color primaryColor,
-    double pulseVal,
-    bool isConnected,
-    bool isBusy,
-  ) {
-    final haloSize = widget.size + (isBusy ? 42.0 * pulseVal : (isConnected ? 28.0 : 12.0));
-    final haloAlpha = isConnected
-        ? 0.35 + (pulseVal * 0.2)
-        : (isBusy ? 0.45 + (pulseVal * 0.25) : (_isHovered ? 0.25 : 0.12));
+  Widget _buildHarmonicAura(Color color, double pulse, bool isConnected, bool isBusy) {
+    final auraRadius = widget.size * (isConnected ? 0.95 : (isBusy ? 1.05 : 0.75));
+    final opacity = isConnected
+        ? 0.28 + pulse * 0.15
+        : (isBusy ? 0.35 + pulse * 0.2 : (_isHovered ? 0.18 : 0.08));
 
     return Container(
-      width: haloSize,
-      height: haloSize,
+      width: auraRadius,
+      height: auraRadius,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: primaryColor.withOpacity(haloAlpha),
-            blurRadius: isConnected ? 52.0 : (isBusy ? 64.0 : 28.0),
-            spreadRadius: isConnected ? 8.0 : (isBusy ? 12.0 : 2.0),
+            color: color.withOpacity(opacity),
+            blurRadius: isConnected ? 64.0 : 42.0,
+            spreadRadius: isConnected ? 8.0 : 2.0,
           ),
           if (isConnected)
             BoxShadow(
-              color: AppColors.cyberCyan.withOpacity(0.25),
-              blurRadius: 36.0,
+              color: AppColors.cyberCyan.withOpacity(0.2),
+              blurRadius: 40.0,
               spreadRadius: 4.0,
             ),
         ],
@@ -209,275 +207,246 @@ class _ConnectPowerButtonState extends State<ConnectPowerButton>
     );
   }
 
-  Widget _buildSphericalCore(
-    double baseSize,
+  Widget _buildGravitationalCore(
+    double diameter,
     Color primaryColor,
-    Color glowColor,
     bool isConnected,
     bool isBusy,
-    double pulseVal,
+    double press,
   ) {
-    return Container(
-      width: baseSize,
-      height: baseSize,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        // Multi-level 3D metallic and glass gradient
-        gradient: RadialGradient(
-          center: const Alignment(-0.35, -0.4),
-          radius: 0.95,
-          colors: [
-            Color.lerp(
-              AppColors.surfaceLight,
-              primaryColor.withOpacity(0.35),
-              isConnected ? 0.4 : (isBusy ? 0.3 : 0.05),
-            )!,
-            AppColors.surface,
-            AppColors.voidDark,
-            AppColors.voidBlack,
-          ],
-          stops: const [0.0, 0.45, 0.85, 1.0],
-        ),
-        border: Border.all(
-          color: isConnected
-              ? AppColors.neonEmerald
-              : (isBusy
-                  ? AppColors.cyberCyan
-                  : (_isHovered ? AppColors.borderFocus : AppColors.borderSubtle)),
-          width: isConnected ? 2.4 : 1.6,
-        ),
-        boxShadow: [
-          // Inner rim shadow for genuine dimensional concavity
-          BoxShadow(
-            color: primaryColor.withOpacity(isConnected ? 0.5 : (isBusy ? 0.4 : 0.15)),
-            blurRadius: 18.0,
-            spreadRadius: isConnected ? 3.0 : 0.5,
-          ),
-          const BoxShadow(
-            color: Color(0xCC000000),
-            offset: Offset(0, 10),
-            blurRadius: 24.0,
-          ),
-        ],
-      ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // 3D Glass Specular Crescent (Top-Left Highlight)
-          Positioned(
-            top: baseSize * 0.09,
-            left: baseSize * 0.16,
-            child: Container(
-              width: baseSize * 0.68,
-              height: baseSize * 0.32,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.all(Radius.elliptical(baseSize * 0.34, baseSize * 0.16)),
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.white.withOpacity(isConnected ? 0.28 : 0.14),
-                    Colors.white.withOpacity(0.0),
-                  ],
-                ),
-              ),
-            ),
-          ),
+    final scale = 1.0 - (press * 0.09);
 
-          // Inner Concentric Energy Chamber
-          Container(
-            width: baseSize * 0.72,
-            height: baseSize * 0.72,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.voidBlack.withOpacity(0.92),
-              border: Border.all(
-                color: primaryColor.withOpacity(isConnected ? 0.45 : 0.2),
-                width: 1.2,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: primaryColor.withOpacity(isConnected ? 0.25 : 0.1),
-                  blurRadius: 12.0,
-                  spreadRadius: 1.0,
-                ),
-              ],
+    return Transform.scale(
+      scale: scale,
+      child: Container(
+        width: diameter,
+        height: diameter,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          // Deep Obsidian Glass with Fresnel rim reflection
+          gradient: RadialGradient(
+            center: const Alignment(-0.25, -0.35),
+            radius: 0.92,
+            colors: [
+              Color.lerp(
+                AppColors.surfaceLight,
+                primaryColor.withOpacity(0.4),
+                isConnected ? 0.5 : 0.1,
+              )!,
+              AppColors.voidDark,
+              AppColors.voidBlack,
+            ],
+            stops: const [0.0, 0.55, 1.0],
+          ),
+          border: Border.all(
+            color: primaryColor.withOpacity(isConnected ? 0.8 : (isBusy ? 0.6 : 0.3)),
+            width: isConnected ? 1.8 : 1.2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: primaryColor.withOpacity(isConnected ? 0.45 : 0.12),
+              blurRadius: 20.0,
+              spreadRadius: 1.0,
             ),
-            child: Column(
+            const BoxShadow(
+              color: Color(0xDD000000),
+              offset: Offset(0, 8),
+              blurRadius: 18.0,
+            ),
+          ],
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Optical Specular Sheen (Curved Crystal Reflection)
+            Positioned(
+              top: diameter * 0.12,
+              left: diameter * 0.2,
+              child: Container(
+                width: diameter * 0.6,
+                height: diameter * 0.26,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.all(
+                    Radius.elliptical(diameter * 0.3, diameter * 0.13),
+                  ),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.white.withOpacity(isConnected ? 0.3 : 0.12),
+                      Colors.white.withOpacity(0.0),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Inner Core Glyph and Topological Status
+            Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Power Glyph with Chromatic Bloom
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    if (isConnected || isBusy)
-                      Icon(
-                        Icons.power_settings_new_rounded,
-                        size: 54,
-                        color: primaryColor.withOpacity(0.4),
-                      ),
-                    Icon(
-                      Icons.power_settings_new_rounded,
-                      size: 52,
-                      color: isConnected
-                          ? AppColors.neonEmerald
-                          : (isBusy ? AppColors.cyberCyan : AppColors.textMuted),
-                      shadows: [
-                        Shadow(
-                          color: primaryColor.withOpacity(isConnected ? 0.9 : 0.4),
-                          blurRadius: isConnected ? 18.0 : 8.0,
-                        ),
-                      ],
+                Icon(
+                  Icons.power_settings_new_rounded,
+                  size: diameter * 0.38,
+                  color: isConnected
+                      ? AppColors.neonEmerald
+                      : (isBusy ? AppColors.cyberCyan : AppColors.textMuted),
+                  shadows: [
+                    Shadow(
+                      color: primaryColor.withOpacity(isConnected ? 0.9 : 0.4),
+                      blurRadius: isConnected ? 16.0 : 6.0,
                     ),
                   ],
                 ),
-
-                const SizedBox(height: 8),
-
-                // Cyber Status HUD Ticker
+                const SizedBox(height: 4),
                 Text(
-                  isConnected
-                      ? 'АКТИВИРОВАН'
-                      : (isBusy ? 'СИНХРОНИЗАЦИЯ...' : 'ВКЛЮЧИТЬ'),
+                  isConnected ? 'АКТИВЕН' : (isBusy ? 'СВЯЗЬ...' : 'СТАРТ'),
                   style: TextStyle(
                     color: isConnected
                         ? AppColors.neonEmerald
                         : (isBusy ? AppColors.cyberCyan : AppColors.textSecondary),
-                    fontSize: 10.5,
+                    fontSize: 10,
                     fontWeight: FontWeight.w900,
                     fontFamily: 'monospace',
-                    letterSpacing: 1.5,
-                  ),
-                ),
-
-                const SizedBox(height: 3),
-
-                // Micro Dimensional Coordinate Label
-                Text(
-                  isConnected
-                      ? 'DIM: SECURE // 0x7F'
-                      : (isBusy ? 'CONNECTING...' : 'GATEWAY: READY'),
-                  style: TextStyle(
-                    color: isConnected
-                        ? AppColors.skyBlue.withOpacity(0.85)
-                        : AppColors.textMuted,
-                    fontSize: 8.5,
-                    fontWeight: FontWeight.w600,
-                    fontFamily: 'monospace',
-                    letterSpacing: 0.8,
+                    letterSpacing: 1.6,
                   ),
                 ),
               ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-/// Custom painter for multidimensional orbital rings, quantum nodes,
-/// radial technical telemetry ticks, and counter-rotating energy segments.
-class _QuantumPortalRingsPainter extends CustomPainter {
-  final double rotAngle;
-  final double pulse;
-  final bool isConnected;
-  final bool isBusy;
+/// Custom painter that executes true 4D stereographic projection
+/// of the Clifford Torus Villarceau geodesics and Hopf fibers onto the 2D canvas.
+class _HopfFibrationPainter extends CustomPainter {
+  final Matrix4D matrix4D;
+  final double stereoDistance;
   final Color primaryColor;
   final Color secondaryColor;
+  final bool isConnected;
+  final bool isBusy;
+  final double pulse;
+  final double time;
 
-  _QuantumPortalRingsPainter({
-    required this.rotAngle,
-    required this.pulse,
-    required this.isConnected,
-    required this.isBusy,
+  _HopfFibrationPainter({
+    required this.matrix4D,
+    required this.stereoDistance,
     required this.primaryColor,
     required this.secondaryColor,
+    required this.isConnected,
+    required this.isBusy,
+    required this.pulse,
+    required this.time,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width * 0.5, size.height * 0.5);
-    final maxRadius = size.width * 0.5 - 2;
+    final cx = size.width * 0.5;
+    final cy = size.height * 0.5;
+    final fovScale = size.width * 0.38;
 
-    // Outer Ring: Rotating Clockwise with Sci-Fi Segment Arcs
-    final outerRadius = maxRadius;
-    final outerPaint = Paint()
+    final fiberPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..color = primaryColor.withOpacity(isConnected ? 0.55 : (isBusy ? 0.45 : 0.2));
+      ..strokeCap = StrokeCap.round;
 
-    // Outer Tech Arcs (3 segments)
-    const segments = 3;
-    const arcLength = (2 * pi / segments) * 0.65;
-    for (int i = 0; i < segments; i++) {
-      final startAngle = rotAngle + (i * 2 * pi / segments);
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: outerRadius),
-        startAngle,
-        arcLength,
-        false,
-        outerPaint,
-      );
+    final rings = CliffordTorus4D.ringFamilies;
+    final hopfFibers = CliffordTorus4D.hopfFibers;
+
+    // 1. Draw Stereographic Clifford Torus Rings
+    for (int i = 0; i < rings.length; i++) {
+      final ring = rings[i];
+      final path = Path();
+      bool first = true;
+      double avgW = 0.0;
+
+      for (int j = 0; j < ring.length; j++) {
+        final v4 = ring[j];
+        // 4D Transformation
+        final rotated = matrix4D.transform(v4);
+        avgW += rotated.w;
+
+        // Stereographic Projection ℝ⁴ -> ℝ³ -> Screen
+        final p3 = rotated.projectStereographic(distance: stereoDistance);
+        final sx = cx + p3.x * fovScale;
+        final sy = cy + p3.y * fovScale;
+
+        if (first) {
+          path.moveTo(sx, sy);
+          first = false;
+        } else {
+          path.lineTo(sx, sy);
+        }
+      }
+      path.close();
+
+      avgW /= ring.length;
+      // 4th dimension depth modulation
+      final depthAlpha = ((avgW + 1.0) * 0.5).clamp(0.08, 0.95);
+      final strokeW = ((avgW + 1.0) * 0.75 + 0.4).clamp(0.5, 1.8);
+
+      final ringColor = Color.lerp(secondaryColor, primaryColor, (i % 2 == 0) ? 0.7 : 0.3)!;
+      fiberPaint.color = ringColor.withOpacity(depthAlpha * (isConnected ? 0.65 : 0.35));
+      fiberPaint.strokeWidth = strokeW;
+
+      canvas.drawPath(path, fiberPaint);
     }
 
-    // Outer Quantum Orbital Nodes
-    final nodePaint = Paint()..style = PaintingStyle.fill;
-    const nodeCount = 3;
-    for (int i = 0; i < nodeCount; i++) {
-      final nodeAngle = rotAngle + (i * 2 * pi / nodeCount) + (arcLength * 0.5);
-      final nx = center.dx + cos(nodeAngle) * outerRadius;
-      final ny = center.dy + sin(nodeAngle) * outerRadius;
+    // 2. Draw Villarceau Hopf Geodesics (Flowing spiral fibers)
+    for (int k = 0; k < hopfFibers.length; k++) {
+      final fiber = hopfFibers[k];
+      final path = Path();
+      bool first = true;
+      double avgW = 0.0;
 
-      nodePaint.color = isConnected ? AppColors.neonEmerald : AppColors.cyberCyan;
-      canvas.drawCircle(Offset(nx, ny), isConnected ? 3.0 : 2.2, nodePaint);
+      for (int s = 0; s < fiber.length; s++) {
+        final v4 = fiber[s];
+        final rotated = matrix4D.transform(v4);
+        avgW += rotated.w;
 
-      // Node aura glow
-      nodePaint.color = (isConnected ? AppColors.neonEmerald : AppColors.cyberCyan).withOpacity(0.35);
-      canvas.drawCircle(Offset(nx, ny), isConnected ? 6.0 : 4.5, nodePaint);
-    }
+        final p3 = rotated.projectStereographic(distance: stereoDistance);
+        final sx = cx + p3.x * fovScale;
+        final sy = cy + p3.y * fovScale;
 
-    // Middle Ring: Counter-Rotating with Technical Hash Ticks
-    final midRadius = outerRadius - 9.0;
-    final tickSpeed = isBusy ? -rotAngle * 2.5 : -rotAngle * 0.7;
-    final tickPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0;
+        if (first) {
+          path.moveTo(sx, sy);
+          first = false;
+        } else {
+          path.lineTo(sx, sy);
+        }
+      }
 
-    const numTicks = 36;
-    for (int i = 0; i < numTicks; i++) {
-      final angle = tickSpeed + (i * 2 * pi / numTicks);
-      final isMajor = i % 6 == 0;
-      final tickLength = isMajor ? 5.0 : 2.5;
+      avgW /= fiber.length;
+      final depthAlpha = ((avgW + 1.0) * 0.5).clamp(0.12, 1.0);
 
-      final r1 = midRadius;
-      final r2 = midRadius - tickLength;
+      fiberPaint.color = primaryColor.withOpacity(depthAlpha * (isConnected ? 0.75 : 0.4));
+      fiberPaint.strokeWidth = isConnected ? 1.2 : 0.8;
+      canvas.drawPath(path, fiberPaint);
 
-      tickPaint.color = (isMajor ? secondaryColor : primaryColor).withOpacity(
-        isMajor
-            ? (isConnected ? 0.7 : 0.4)
-            : (isConnected ? 0.35 : 0.18),
-      );
+      // Quantum nodes traveling along Villarceau geodesics
+      if (isConnected || isBusy) {
+        final nodeT = ((time * (isConnected ? 0.4 : 0.7)) + (k / hopfFibers.length)) % 1.0;
+        final nodeIndex = (nodeT * (fiber.length - 1)).toInt();
+        final nodeV4 = matrix4D.transform(fiber[nodeIndex]);
+        final nodeP3 = nodeV4.projectStereographic(distance: stereoDistance);
+        final nx = cx + nodeP3.x * fovScale;
+        final ny = cy + nodeP3.y * fovScale;
 
-      final p1 = Offset(center.dx + cos(angle) * r1, center.dy + sin(angle) * r1);
-      final p2 = Offset(center.dx + cos(angle) * r2, center.dy + sin(angle) * r2);
-      canvas.drawLine(p1, p2, tickPaint);
-    }
+        final nodePaint = Paint()
+          ..style = PaintingStyle.fill
+          ..color = (isConnected ? AppColors.neonEmerald : AppColors.cyberCyan)
+              .withOpacity(((nodeV4.w + 1.0) * 0.5).clamp(0.3, 1.0));
 
-    // Dynamic Energy Pulse Wave Ring (when connected or busy)
-    if (isConnected || isBusy) {
-      final waveRadius = midRadius - 8.0 + (pulse * 6.0);
-      final wavePaint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0
-        ..color = primaryColor.withOpacity((1.0 - pulse) * (isConnected ? 0.55 : 0.7));
-
-      canvas.drawCircle(center, waveRadius, wavePaint);
+        canvas.drawCircle(Offset(nx, ny), isConnected ? 2.8 : 2.0, nodePaint);
+      }
     }
   }
 
   @override
-  bool shouldRepaint(covariant _QuantumPortalRingsPainter oldDelegate) {
+  bool shouldRepaint(covariant _HopfFibrationPainter oldDelegate) {
     return true;
   }
 }

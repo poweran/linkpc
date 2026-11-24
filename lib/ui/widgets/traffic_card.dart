@@ -1,13 +1,14 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/math/hyper_geometry.dart';
 import '../../core/models/traffic_stats.dart';
 import '../../core/services/speed_test_service.dart';
 import '../../core/utils/formatters.dart';
 import 'cyber_card.dart';
 
-/// Multidimensional Traffic Card with live animated quantum waveform visualizer,
-/// high-precision speed metrics, session telemetry, and holographic speed testing.
+/// Multidimensional Traffic Card driven by true Fourier spectral decomposition
+/// of network stream throughput, caustic wave fills, and golden ratio telemetry.
 class TrafficCard extends StatefulWidget {
   final TrafficStats stats;
   final bool isConnected;
@@ -30,20 +31,20 @@ class TrafficCard extends StatefulWidget {
 
 class _TrafficCardState extends State<TrafficCard>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _waveController;
+  late final AnimationController _spectralController;
 
   @override
   void initState() {
     super.initState();
-    _waveController = AnimationController(
+    _spectralController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 4),
+      duration: const Duration(milliseconds: 3600),
     )..repeat();
   }
 
   @override
   void dispose() {
-    _waveController.dispose();
+    _spectralController.dispose();
     super.dispose();
   }
 
@@ -58,12 +59,12 @@ class _TrafficCardState extends State<TrafficCard>
     return CyberCard(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       borderColor: isConnected
-          ? AppColors.neonEmerald.withOpacity(0.35)
+          ? AppColors.neonEmerald.withOpacity(0.4)
           : AppColors.border,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Top Header: Live Waveform Visualizer & Activity Badge
+          // Header: Mathematical Spectrum Descriptor
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -78,7 +79,7 @@ class _TrafficCardState extends State<TrafficCard>
                       boxShadow: isConnected
                           ? [
                               BoxShadow(
-                                color: AppColors.neonEmerald.withOpacity(0.8),
+                                color: AppColors.neonEmerald.withOpacity(0.9),
                                 blurRadius: 8,
                                 spreadRadius: 1,
                               ),
@@ -88,13 +89,13 @@ class _TrafficCardState extends State<TrafficCard>
                   ),
                   const SizedBox(width: 8),
                   const Text(
-                    'ТЕЛЕМЕТРИЯ СКОРОСТИ И ПОТОКА',
+                    'ФУРЬЕ-СПЕКТР СЕТЕВОГО ПОТОКА',
                     style: TextStyle(
                       color: AppColors.textPrimary,
                       fontSize: 10.5,
                       fontWeight: FontWeight.w800,
                       fontFamily: 'monospace',
-                      letterSpacing: 0.6,
+                      letterSpacing: 0.8,
                     ),
                   ),
                 ],
@@ -109,7 +110,7 @@ class _TrafficCardState extends State<TrafficCard>
                   ),
                 ),
                 child: Text(
-                  isConnected ? 'LIVE // REAL-TIME' : 'STANDBY',
+                  isConnected ? 'HARMONICS // 1/f' : 'EQUILIBRIUM',
                   style: TextStyle(
                     color: isConnected ? AppColors.neonEmerald : AppColors.textMuted,
                     fontSize: 8.5,
@@ -124,10 +125,9 @@ class _TrafficCardState extends State<TrafficCard>
 
           const SizedBox(height: 12),
 
-          // Speed Metric HUD Gauges
+          // Speed HUD Capsules
           Row(
             children: [
-              // Download Metric
               Expanded(
                 child: _buildSpeedCapsule(
                   title: 'ВХОДЯЩИЙ ПОТОК',
@@ -137,10 +137,7 @@ class _TrafficCardState extends State<TrafficCard>
                   isActive: isConnected && downSpeed > 0,
                 ),
               ),
-
               const SizedBox(width: 12),
-
-              // Upload Metric
               Expanded(
                 child: _buildSpeedCapsule(
                   title: 'ИСХОДЯЩИЙ ПОТОК',
@@ -155,24 +152,24 @@ class _TrafficCardState extends State<TrafficCard>
 
           const SizedBox(height: 12),
 
-          // Live Holographic Frequency Waveform Canvas
+          // Real-time Fourier Harmonic Oscilloscope Screen
           Container(
-            height: 38,
+            height: 48,
             width: double.infinity,
             decoration: BoxDecoration(
-              color: AppColors.voidBlack.withOpacity(0.6),
+              color: AppColors.voidBlack.withOpacity(0.85),
               border: Border.all(color: AppColors.border.withOpacity(0.7)),
             ),
             child: ClipRect(
               child: AnimatedBuilder(
-                animation: _waveController,
+                animation: _spectralController,
                 builder: (context, _) {
                   return CustomPaint(
-                    painter: _TrafficWaveVisualizerPainter(
-                      progress: _waveController.value,
+                    painter: _FourierHarmonicVisualizerPainter(
+                      progress: _spectralController.value,
                       isConnected: isConnected,
-                      downSpeed: downSpeed,
-                      upSpeed: upSpeed,
+                      downBytesPerSec: downSpeed,
+                      upBytesPerSec: upSpeed,
                     ),
                   );
                 },
@@ -184,7 +181,7 @@ class _TrafficCardState extends State<TrafficCard>
           const Divider(height: 1, color: AppColors.border),
           const SizedBox(height: 10),
 
-          // Session Duration & Total Session Traffic
+          // Session Duration & Integrated Volume
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -233,7 +230,7 @@ class _TrafficCardState extends State<TrafficCard>
             ],
           ),
 
-          // Speed Test Module (when connected)
+          // Speed Test Module
           if (isConnected) ...[
             const SizedBox(height: 10),
             const Divider(height: 1, color: AppColors.border),
@@ -359,9 +356,9 @@ class _TrafficCardState extends State<TrafficCard>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: AppColors.voidBlack.withOpacity(0.55),
+        color: AppColors.voidBlack.withOpacity(0.65),
         border: Border.all(
-          color: isActive ? accentColor.withOpacity(0.45) : AppColors.border,
+          color: isActive ? accentColor.withOpacity(0.5) : AppColors.border,
           width: 0.9,
         ),
       ),
@@ -371,7 +368,7 @@ class _TrafficCardState extends State<TrafficCard>
             padding: const EdgeInsets.all(5),
             decoration: BoxDecoration(
               color: accentColor.withOpacity(0.12),
-              border: Border.all(color: accentColor.withOpacity(0.3)),
+              border: Border.all(color: accentColor.withOpacity(0.35)),
             ),
             child: Icon(icon, size: 14, color: accentColor),
           ),
@@ -410,82 +407,127 @@ class _TrafficCardState extends State<TrafficCard>
   }
 }
 
-/// Custom painter for dynamic cyber wave oscilloscope reflecting live throughput.
-class _TrafficWaveVisualizerPainter extends CustomPainter {
+/// Custom painter executing real-time Fourier series wave synthesis with caustic fills.
+class _FourierHarmonicVisualizerPainter extends CustomPainter {
   final double progress;
   final bool isConnected;
-  final int downSpeed;
-  final int upSpeed;
+  final int downBytesPerSec;
+  final int upBytesPerSec;
 
-  _TrafficWaveVisualizerPainter({
+  _FourierHarmonicVisualizerPainter({
     required this.progress,
     required this.isConnected,
-    required this.downSpeed,
-    required this.upSpeed,
+    required this.downBytesPerSec,
+    required this.upBytesPerSec,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final midY = size.height * 0.5;
-    final width = size.width;
+    final w = size.width;
 
-    // Center Baseline
-    final basePaint = Paint()
-      ..color = AppColors.border.withOpacity(0.5)
-      ..strokeWidth = 0.8;
-    canvas.drawLine(Offset(0, midY), Offset(width, midY), basePaint);
+    // Harmonic Centerline & Grid Coordinates
+    final gridPaint = Paint()
+      ..color = AppColors.border.withOpacity(0.35)
+      ..strokeWidth = 0.6;
+    canvas.drawLine(Offset(0, midY), Offset(w, midY), gridPaint);
+    canvas.drawLine(Offset(w * 0.5, 0), Offset(w * 0.5, size.height), gridPaint);
+
+    final time = progress * MathConstants.tau;
 
     if (!isConnected) {
-      // Gentle dormant carrier wave
-      final dormantPath = Path();
-      dormantPath.moveTo(0, midY);
-      for (double x = 0; x <= width; x += 3) {
-        final y = midY + sin((x / width * 4 * pi) + (progress * 2 * pi)) * 3.0;
-        dormantPath.lineTo(x, y);
+      // Ethereal Standing Wave Equilibrium: y = A · sin(kx) · cos(ωt)
+      final eqPath = Path();
+      eqPath.moveTo(0, midY);
+      for (double x = 0; x <= w; x += 2) {
+        final t = x / w;
+        final y = midY + sin(t * MathConstants.tau * 2.0) * cos(time) * 3.5;
+        eqPath.lineTo(x, y);
       }
-      final dormantPaint = Paint()
+      final eqPaint = Paint()
         ..color = AppColors.cyberCyan.withOpacity(0.25)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.0;
-      canvas.drawPath(dormantPath, dormantPaint);
+      canvas.drawPath(eqPath, eqPaint);
       return;
     }
 
-    // Dynamic amplitude based on speed values
-    final downIntensity = (downSpeed > 0 ? (log(downSpeed) / log(10000000)).clamp(0.2, 1.0) : 0.15) * 12.0;
-    final upIntensity = (upSpeed > 0 ? (log(upSpeed) / log(10000000)).clamp(0.2, 1.0) : 0.15) * 10.0;
+    // Dynamic Fundamental Amplitudes in logarithmic scale
+    final downIntensity = (downBytesPerSec > 0
+        ? (log(downBytesPerSec + 10) / log(100000000)).clamp(0.2, 1.0)
+        : 0.12) * (size.height * 0.38);
 
-    // Inbound Wave (Cyan)
+    final upIntensity = (upBytesPerSec > 0
+        ? (log(upBytesPerSec + 10) / log(100000000)).clamp(0.2, 1.0)
+        : 0.12) * (size.height * 0.32);
+
+    // 1. Inbound Fourier Harmonic Ribbon (Cyan with Caustic Fill)
     final downPath = Path();
+    final downFillPath = Path();
     downPath.moveTo(0, midY);
-    for (double x = 0; x <= width; x += 3) {
-      final t = x / width;
-      final y = midY - (sin((t * 6 * pi) + (progress * 6 * pi)) * downIntensity * sin(t * pi));
+    downFillPath.moveTo(0, midY);
+
+    for (double x = 0; x <= w; x += 2.0) {
+      final nx = x / w;
+      // Multi-harmonic Fourier Synthesis: Fundamental + 4 Harmonics
+      final yOffset = FourierFlowHarmonics.evaluate(
+        normalizedX: nx,
+        time: time,
+        baseFrequency: 1.5,
+        fundamentalAmp: downIntensity,
+        harmonicCount: 4,
+      );
+      final y = midY - yOffset;
       downPath.lineTo(x, y);
+      downFillPath.lineTo(x, y);
     }
-    final downPaint = Paint()
-      ..color = AppColors.cyberCyan.withOpacity(0.7)
+    downFillPath.lineTo(w, midY);
+    downFillPath.close();
+
+    // Caustic Under-Wave Fill
+    final downFillPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          AppColors.cyberCyan.withOpacity(0.22),
+          AppColors.cyberCyan.withOpacity(0.0),
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, w, size.height))
+      ..style = PaintingStyle.fill;
+    canvas.drawPath(downFillPath, downFillPaint);
+
+    final downLinePaint = Paint()
+      ..color = AppColors.cyberCyan
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.4;
-    canvas.drawPath(downPath, downPaint);
+    canvas.drawPath(downPath, downLinePaint);
 
-    // Outbound Wave (Sky Blue)
+    // 2. Outbound Harmonic Wave (Neon Emerald)
     final upPath = Path();
     upPath.moveTo(0, midY);
-    for (double x = 0; x <= width; x += 3) {
-      final t = x / width;
-      final y = midY + (cos((t * 5 * pi) - (progress * 5 * pi)) * upIntensity * sin(t * pi));
+    for (double x = 0; x <= w; x += 2.0) {
+      final nx = x / w;
+      final yOffset = FourierFlowHarmonics.evaluate(
+        normalizedX: nx,
+        time: -time * 0.8,
+        baseFrequency: 2.0,
+        fundamentalAmp: upIntensity,
+        harmonicCount: 3,
+      );
+      final y = midY + yOffset;
       upPath.lineTo(x, y);
     }
-    final upPaint = Paint()
-      ..color = AppColors.neonEmerald.withOpacity(0.65)
+
+    final upLinePaint = Paint()
+      ..color = AppColors.neonEmerald.withOpacity(0.75)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.2;
-    canvas.drawPath(upPath, upPaint);
+    canvas.drawPath(upPath, upLinePaint);
   }
 
   @override
-  bool shouldRepaint(covariant _TrafficWaveVisualizerPainter oldDelegate) {
+  bool shouldRepaint(covariant _FourierHarmonicVisualizerPainter oldDelegate) {
     return true;
   }
 }

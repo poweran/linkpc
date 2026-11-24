@@ -12,7 +12,7 @@ class TelemetryBar extends StatefulWidget {
   const TelemetryBar({
     super.key,
     this.pingMs,
-    this.statusText = 'DIM-LINK // МОСКВА → ЕРЕВАН // VLESS-XHTTP',
+    this.statusText = 'МАРШРУТ: МОСКВА → ЕРЕВАН // VLESS-XHTTP',
     this.onRefreshPing,
   });
 
@@ -89,39 +89,16 @@ class _TelemetryBarState extends State<TelemetryBar>
 
                 // Telemetry Route Description
                 Expanded(
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: AppColors.cyberCyan.withOpacity(0.12),
-                          border: Border.all(color: AppColors.cyberCyan.withOpacity(0.35), width: 0.6),
-                        ),
-                        child: const Text(
-                          'HUD',
-                          style: TextStyle(
-                            color: AppColors.cyberCyan,
-                            fontSize: 8.5,
-                            fontWeight: FontWeight.w900,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          widget.statusText,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.skyBlue,
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w700,
-                            fontFamily: 'monospace',
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    widget.statusText,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.skyBlue,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                      fontFamily: 'monospace',
+                      letterSpacing: 0.5,
+                    ),
                   ),
                 ),
               ],
