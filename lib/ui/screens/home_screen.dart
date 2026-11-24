@@ -14,6 +14,7 @@ import '../../core/services/vpn_service.dart';
 import '../../core/utils/formatters.dart';
 import '../widgets/connect_power_button.dart';
 import '../widgets/cyber_card.dart';
+import '../widgets/multidimensional_space.dart';
 import '../widgets/status_badge.dart';
 import '../widgets/telemetry_bar.dart';
 import '../widgets/traffic_card.dart';
@@ -217,87 +218,97 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Header Bar
-            _buildHeader(context),
+      body: MultidimensionalSpace(
+        status: _status,
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Header Bar
+              _buildHeader(context),
 
-            // Real-time Telemetry Bar
-            TelemetryBar(
-              pingMs: _pingMs,
-              onRefreshPing: _refreshPing,
-            ),
+              // Real-time Telemetry Bar
+              TelemetryBar(
+                pingMs: _pingMs,
+                onRefreshPing: _refreshPing,
+              ),
 
-            // Scrollable Main Content
-            Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 12),
+              // Scrollable Main Content
+              Expanded(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 12),
 
-                    // Central Glowing Power Button
-                    Center(
-                      child: ConnectPowerButton(
-                        status: _status,
-                        onTap: _toggleVpn,
+                      // Central Glowing Power Button
+                      Center(
+                        child: ConnectPowerButton(
+                          status: _status,
+                          onTap: _toggleVpn,
+                        ),
                       ),
-                    ),
 
-                    const SizedBox(height: 16),
+                      const SizedBox(height: 16),
 
-                    // Status Label & Routing Mode Badge
-                    Text(
-                      _status.label,
-                      style: TextStyle(
-                        color: isConnected
-                            ? AppColors.neonEmerald
-                            : (_status.isConnecting ? AppColors.cyberCyan : AppColors.textMuted),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w900,
-                        fontFamily: 'monospace',
-                        letterSpacing: 1.0,
+                      // Status Label & Routing Mode Badge
+                      Text(
+                        _status.label,
+                        style: TextStyle(
+                          color: isConnected
+                              ? AppColors.neonEmerald
+                              : (_status.isConnecting ? AppColors.cyberCyan : AppColors.textMuted),
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w900,
+                          fontFamily: 'monospace',
+                          letterSpacing: 1.2,
+                          shadows: [
+                            if (isConnected || _status.isConnecting)
+                              Shadow(
+                                color: (isConnected ? AppColors.neonEmerald : AppColors.cyberCyan).withOpacity(0.6),
+                                blurRadius: 10,
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
 
-                    const SizedBox(height: 8),
+                      const SizedBox(height: 8),
 
-                    StatusBadge(
-                      label: _routingMode == AppConstants.routeModeSmart
-                          ? 'УМНЫЙ МАРШРУТ (RU НАПРЯМУЮ)'
-                          : 'ПОЛНЫЙ ТУННЕЛЬ (ВЕСЬ ТРАФИК)',
-                      color: isConnected ? AppColors.neonEmerald : AppColors.cyberCyan,
-                    ),
+                      StatusBadge(
+                        label: _routingMode == AppConstants.routeModeSmart
+                            ? 'УМНЫЙ МАРШРУТ (RU НАПРЯМУЮ)'
+                            : 'ПОЛНЫЙ ТУННЕЛЬ (ВЕСЬ ТРАФИК)',
+                        color: isConnected ? AppColors.neonEmerald : AppColors.cyberCyan,
+                      ),
 
-                    const SizedBox(height: 24),
+                      const SizedBox(height: 24),
 
-                    // Live Traffic Card
-                    TrafficCard(
-                      stats: _traffic,
-                      isConnected: isConnected,
-                      speedTestProgress: _speedTestProgress,
-                      lastSpeedTestResult: _lastSpeedTestResult,
-                      onRunSpeedTest: _runSpeedTest,
-                    ),
+                      // Live Traffic Card
+                      TrafficCard(
+                        stats: _traffic,
+                        isConnected: isConnected,
+                        speedTestProgress: _speedTestProgress,
+                        lastSpeedTestResult: _lastSpeedTestResult,
+                        onRunSpeedTest: _runSpeedTest,
+                      ),
 
-                    const SizedBox(height: 14),
+                      const SizedBox(height: 14),
 
-                    // Real-time Diagnostics & Console Preview Card
-                    _buildDiagnosticsCard(),
+                      // Real-time Diagnostics & Console Preview Card
+                      _buildDiagnosticsCard(),
 
-                    const SizedBox(height: 14),
+                      const SizedBox(height: 14),
 
-                    // Subscription / Gateway Profile Card
-                    _buildSubscriptionCard(),
+                      // Subscription / Gateway Profile Card
+                      _buildSubscriptionCard(),
 
-                    const SizedBox(height: 24),
-                  ],
+                      const SizedBox(height: 24),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -306,9 +317,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildHeader(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: const BoxDecoration(
-        color: AppColors.voidDark,
-        border: Border(bottom: BorderSide(color: AppColors.border, width: 1)),
+      decoration: BoxDecoration(
+        color: AppColors.voidDark.withOpacity(0.88),
+        border: const Border(bottom: BorderSide(color: AppColors.border, width: 1)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.voidBlack.withOpacity(0.6),
+            offset: const Offset(0, 4),
+            blurRadius: 12,
+          ),
+        ],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -317,11 +335,17 @@ class _HomeScreenState extends State<HomeScreen> {
           Row(
             children: [
               Container(
-                width: 32,
-                height: 32,
+                width: 34,
+                height: 34,
                 decoration: BoxDecoration(
                   color: AppColors.voidBlack,
-                  border: Border.all(color: AppColors.cyberCyan.withOpacity(0.5)),
+                  border: Border.all(color: AppColors.cyberCyan.withOpacity(0.6), width: 1.2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.cyberCyan.withOpacity(0.25),
+                      blurRadius: 8,
+                    ),
+                  ],
                 ),
                 child: const Center(
                   child: Text(
@@ -361,6 +385,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                 fontSize: 18,
                                 fontWeight: FontWeight.w900,
                                 fontFamily: 'monospace',
+                                shadows: [
+                                  Shadow(
+                                    color: AppColors.cyberCyan,
+                                    blurRadius: 10,
+                                  ),
+                                ],
                               ),
                             ),
                           ],
@@ -368,10 +398,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(width: 8),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
                         decoration: BoxDecoration(
                           color: AppColors.cyberCyan.withOpacity(0.12),
-                          border: Border.all(color: AppColors.cyberCyan.withOpacity(0.4), width: 0.8),
+                          border: Border.all(color: AppColors.cyberCyan.withOpacity(0.45), width: 0.8),
                         ),
                         child: Text(
                           AppConstants.displayVersion,
@@ -407,10 +437,16 @@ class _HomeScreenState extends State<HomeScreen> {
               InkWell(
                 onTap: _openLogs,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5.5),
                   decoration: BoxDecoration(
                     color: AppColors.cyberCyan.withOpacity(0.12),
-                    border: Border.all(color: AppColors.cyberCyan.withOpacity(0.6), width: 1),
+                    border: Border.all(color: AppColors.cyberCyan.withOpacity(0.65), width: 1),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.cyberCyan.withOpacity(0.15),
+                        blurRadius: 8,
+                      ),
+                    ],
                   ),
                   child: const Row(
                     children: [
@@ -423,6 +459,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                           fontFamily: 'monospace',
+                          letterSpacing: 0.5,
                         ),
                       ),
                     ],
@@ -628,16 +665,33 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           const SizedBox(height: 10),
-          // Traffic Progress Bar
-          ClipRRect(
-            borderRadius: BorderRadius.zero,
-            child: LinearProgressIndicator(
-              value: _profile.usagePercent,
-              backgroundColor: AppColors.border,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                _profile.usagePercent > 0.85 ? AppColors.warning : AppColors.cyberCyan,
+          // Multidimensional Traffic Progress Bar
+          Container(
+            height: 6,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: AppColors.voidBlack,
+              border: Border.all(color: AppColors.border),
+            ),
+            child: FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: _profile.usagePercent.clamp(0.0, 1.0),
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      _profile.usagePercent > 0.85 ? AppColors.warning : AppColors.deepCyan,
+                      _profile.usagePercent > 0.85 ? AppColors.error : AppColors.cyberCyan,
+                    ],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: (_profile.usagePercent > 0.85 ? AppColors.warning : AppColors.cyberCyan).withOpacity(0.6),
+                      blurRadius: 6,
+                    ),
+                  ],
+                ),
               ),
-              minHeight: 6,
             ),
           ),
           const SizedBox(height: 8),
