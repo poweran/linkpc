@@ -36,10 +36,6 @@ class TrafficCard extends StatelessWidget {
     final downSpeed = stats.downloadSpeedBytesPerSec;
     final upSpeed = stats.uploadSpeedBytesPerSec;
 
-    // Real-time packet throughput estimate (MTU ~1380 bytes per VPN frame)
-    final rxPackets = downSpeed > 0 ? (downSpeed / 1380).ceil() : 0;
-    final txPackets = upSpeed > 0 ? (upSpeed / 1380).ceil() : 0;
-
     return CyberCard(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       borderColor: isConnected
@@ -48,7 +44,7 @@ class TrafficCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header: Real-Time Network Packet Descriptor
+          // Header: Clean Network Traffic Descriptor
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -63,7 +59,7 @@ class TrafficCard extends StatelessWidget {
                       boxShadow: isConnected
                           ? [
                               BoxShadow(
-                                color: AppColors.neonEmerald.withOpacity(0.9),
+                                color: AppColors.neonEmerald.withOpacity(0.85),
                                 blurRadius: 8,
                                 spreadRadius: 1,
                               ),
@@ -73,52 +69,39 @@ class TrafficCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   const Text(
-                    'МОНИТОР ПАКЕТНОЙ АКТИВНОСТИ [RX / TX]',
+                    'СЕТЕВОЙ ТРАФИК',
                     style: TextStyle(
                       color: AppColors.textPrimary,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w800,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
                       fontFamily: 'monospace',
                       letterSpacing: 0.8,
                     ),
                   ),
                 ],
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: (isConnected ? AppColors.neonEmerald : AppColors.borderSubtle).withOpacity(0.12),
-                  border: Border.all(
-                    color: (isConnected ? AppColors.neonEmerald : AppColors.borderSubtle).withOpacity(0.4),
-                    width: 0.8,
-                  ),
-                ),
-                child: Text(
-                  isConnected ? 'LIVE PACKETS // REAL-TIME' : 'STANDBY',
-                  style: TextStyle(
-                    color: isConnected ? AppColors.neonEmerald : AppColors.textMuted,
-                    fontSize: 8.5,
-                    fontWeight: FontWeight.bold,
+              if (isConnected && (downSpeed > 0 || upSpeed > 0))
+                Text(
+                  Formatters.formatSpeed(downSpeed + upSpeed),
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 10,
                     fontFamily: 'monospace',
-                    letterSpacing: 0.6,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ),
             ],
           ),
 
           const SizedBox(height: 12),
 
-          // Speed HUD Capsules with Real-time Packet Counters
+          // Speed HUD Capsules
           Row(
             children: [
               Expanded(
                 child: _buildSpeedCapsule(
-                  title: 'ВХОДЯЩИЙ ПОТОК (RX)',
+                  title: 'Входящий',
                   speedFormatted: isConnected ? Formatters.formatSpeed(downSpeed) : '0.0 Кбит/с',
-                  packetsText: isConnected && downSpeed > 0
-                      ? '~${Formatters.formatPackets(rxPackets)}'
-                      : '0 пкт/с',
                   icon: Icons.south_rounded,
                   accentColor: AppColors.cyberCyan,
                   isActive: isConnected && downSpeed > 0,
@@ -127,11 +110,8 @@ class TrafficCard extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: _buildSpeedCapsule(
-                  title: 'ИСХОДЯЩИЙ ПОТОК (TX)',
+                  title: 'Исходящий',
                   speedFormatted: isConnected ? Formatters.formatSpeed(upSpeed) : '0.0 Кбит/с',
-                  packetsText: isConnected && upSpeed > 0
-                      ? '~${Formatters.formatPackets(txPackets)}'
-                      : '0 пкт/с',
                   icon: Icons.north_rounded,
                   accentColor: AppColors.neonEmerald,
                   isActive: isConnected && upSpeed > 0,
@@ -142,7 +122,7 @@ class TrafficCard extends StatelessWidget {
 
           const SizedBox(height: 12),
 
-          // Real-time Ultra-Lightweight Packet Oscilloscope Screen
+          // Real-time Ultra-Lightweight Packet Oscilloscope Canvas
           Container(
             height: 54,
             width: double.infinity,
@@ -150,85 +130,14 @@ class TrafficCard extends StatelessWidget {
               color: AppColors.voidBlack.withOpacity(0.92),
               border: Border.all(color: AppColors.border.withOpacity(0.8)),
             ),
-            child: Stack(
-              children: [
-                // Isolated GPU-accelerated drawing canvas
-                Positioned.fill(
-                  child: ClipRect(
-                    child: RepaintBoundary(
-                      child: _RealtimePacketOscilloscope(
-                        downSpeedBytesPerSec: isConnected ? downSpeed : 0,
-                        upSpeedBytesPerSec: isConnected ? upSpeed : 0,
-                        isConnected: isConnected,
-                      ),
-                    ),
-                  ),
+            child: ClipRect(
+              child: RepaintBoundary(
+                child: _RealtimePacketOscilloscope(
+                  downSpeedBytesPerSec: isConnected ? downSpeed : 0,
+                  upSpeedBytesPerSec: isConnected ? upSpeed : 0,
+                  isConnected: isConnected,
                 ),
-
-                // Oscilloscope HUD Overlay (Labels & Legend)
-                Positioned(
-                  top: 4,
-                  left: 6,
-                  right: 6,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 5,
-                            height: 5,
-                            decoration: const BoxDecoration(
-                              color: AppColors.cyberCyan,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          const Text(
-                            'RX (ПОЛУЧЕНО)',
-                            style: TextStyle(
-                              color: AppColors.cyberCyan,
-                              fontSize: 7.5,
-                              fontFamily: 'monospace',
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.4,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            width: 5,
-                            height: 5,
-                            decoration: const BoxDecoration(
-                              color: AppColors.neonEmerald,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          const Text(
-                            'TX (ОТПРАВЛЕНО)',
-                            style: TextStyle(
-                              color: AppColors.neonEmerald,
-                              fontSize: 7.5,
-                              fontFamily: 'monospace',
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.4,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Text(
-                        isConnected ? 'ПОТОК ПАКЕТОВ 60 FPS' : 'ОЖИДАНИЕ СЕТИ',
-                        style: const TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 7.5,
-                          fontFamily: 'monospace',
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
 
@@ -242,11 +151,11 @@ class TrafficCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.timer_outlined, size: 13, color: AppColors.textMuted),
+                  const Icon(Icons.schedule_rounded, size: 13, color: AppColors.textMuted),
                   const SizedBox(width: 5),
                   const Text(
-                    'СЕССИЯ: ',
-                    style: TextStyle(color: AppColors.textMuted, fontSize: 10, fontFamily: 'monospace'),
+                    'Сессия: ',
+                    style: TextStyle(color: AppColors.textMuted, fontSize: 10.5, fontFamily: 'monospace'),
                   ),
                   Text(
                     isConnected ? Formatters.formatDuration(stats.sessionDuration) : '00:00:00',
@@ -265,8 +174,8 @@ class TrafficCard extends StatelessWidget {
                   const Icon(Icons.data_usage_rounded, size: 13, color: AppColors.textMuted),
                   const SizedBox(width: 5),
                   const Text(
-                    'ТРАФИК: ',
-                    style: TextStyle(color: AppColors.textMuted, fontSize: 10, fontFamily: 'monospace'),
+                    'Всего: ',
+                    style: TextStyle(color: AppColors.textMuted, fontSize: 10.5, fontFamily: 'monospace'),
                   ),
                   Text(
                     isConnected
@@ -307,7 +216,7 @@ class TrafficCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        'ЗАМЕР: ${speedTestProgress?.statusText ?? ""}',
+                        'Замер: ${speedTestProgress?.statusText ?? ""}',
                         style: const TextStyle(
                           color: AppColors.neonEmerald,
                           fontSize: 10.5,
@@ -347,10 +256,10 @@ class TrafficCard extends StatelessWidget {
                       const SizedBox(width: 6),
                       Text(
                         lastSpeedTestResult != null
-                            ? 'РЕЗУЛЬТАТ: ${lastSpeedTestResult!.formattedMbps}'
-                            : 'ТЕСТ ПРОПУСКНОЙ СПОСОБНОСТИ',
+                            ? 'Скорость: ${lastSpeedTestResult!.formattedMbps}'
+                            : 'Тест скорости',
                         style: TextStyle(
-                          color: lastSpeedTestResult != null ? AppColors.neonEmerald : AppColors.textMuted,
+                          color: lastSpeedTestResult != null ? AppColors.neonEmerald : AppColors.textSecondary,
                           fontSize: 10.5,
                           fontWeight: FontWeight.bold,
                           fontFamily: 'monospace',
@@ -379,7 +288,7 @@ class TrafficCard extends StatelessWidget {
                           const Icon(Icons.play_arrow_rounded, size: 13, color: AppColors.cyberCyan),
                           const SizedBox(width: 4),
                           Text(
-                            lastSpeedTestResult != null ? 'ПОВТОРИТЬ' : 'ЗАМЕР',
+                            lastSpeedTestResult != null ? 'Повторить' : 'Тест',
                             style: const TextStyle(
                               color: AppColors.cyberCyan,
                               fontSize: 10,
@@ -404,7 +313,6 @@ class TrafficCard extends StatelessWidget {
   Widget _buildSpeedCapsule({
     required String title,
     required String speedFormatted,
-    required String packetsText,
     required IconData icon,
     required Color accentColor,
     required bool isActive,
@@ -433,28 +341,14 @@ class TrafficCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: AppColors.textMuted,
-                        fontSize: 8.5,
-                        fontFamily: 'monospace',
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Text(
-                      packetsText,
-                      style: TextStyle(
-                        color: isActive ? accentColor.withOpacity(0.85) : AppColors.textMuted,
-                        fontSize: 7.5,
-                        fontFamily: 'monospace',
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 9.5,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(

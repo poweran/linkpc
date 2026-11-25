@@ -12,7 +12,7 @@ class TelemetryBar extends StatefulWidget {
   const TelemetryBar({
     super.key,
     this.pingMs,
-    this.statusText = 'МАРШРУТ: МОСКВА → ЕРЕВАН // VLESS-XHTTP',
+    this.statusText = 'Защищенное соединение',
     this.onRefreshPing,
   });
 

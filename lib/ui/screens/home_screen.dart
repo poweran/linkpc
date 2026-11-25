@@ -230,6 +230,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
               // Real-time Telemetry Bar
               TelemetryBar(
+                statusText: isConnected
+                    ? (_routingMode == AppConstants.routeModeSmart
+                        ? 'Умный маршрут • РФ напрямую'
+                        : 'Полный туннель • Весь трафик')
+                    : 'Шлюз готов к подключению',
                 pingMs: _pingMs,
                 onRefreshPing: _refreshPing,
               ),
@@ -282,8 +287,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       StatusBadge(
                         label: _routingMode == AppConstants.routeModeSmart
-                            ? 'УМНЫЙ МАРШРУТ (RU НАПРЯМУЮ)'
-                            : 'ПОЛНЫЙ ТУННЕЛЬ (ВЕСЬ ТРАФИК)',
+                            ? 'Умная маршрутизация'
+                            : 'Полный туннель',
                         color: isConnected ? AppColors.neonEmerald : AppColors.cyberCyan,
                       ),
 
@@ -512,7 +517,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(width: 8),
                   const Text(
-                    'ДИАГНОСТИКА И ЛОГИ СЕТИ',
+                    'ЖУРНАЛ СОБЫТИЙ',
                     style: TextStyle(
                       color: AppColors.textPrimary,
                       fontSize: 11.5,
@@ -525,7 +530,7 @@ class _HomeScreenState extends State<HomeScreen> {
               InkWell(
                 onTap: _openLogs,
                 child: const Text(
-                  'ТЕРМИНАЛ →',
+                  'ЖУРНАЛ →',
                   style: TextStyle(
                     color: AppColors.cyberCyan,
                     fontSize: 11,
