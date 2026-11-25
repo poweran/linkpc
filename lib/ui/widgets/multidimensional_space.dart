@@ -174,18 +174,20 @@ class _MultidimensionalSpaceState extends State<MultidimensionalSpace>
           child: Stack(
             fit: StackFit.expand,
             children: [
-              CustomPaint(
-                size: size,
-                painter: _RiemannianManifoldPainter(
-                  wavePhase: _wavePhase.phase,
-                  flowPhase: _flowPhase.phase,
-                  particlePhase: _particlePhase.phase,
-                  pulsePhase: _pulsePhase.phase,
-                  statusFactor: _statusBlendDamp.current,
-                  trafficFactor: _trafficSpeedDamp.current,
-                  particles: _attractorParticles,
-                  gravityX: _gravityXDamp.current,
-                  gravityY: _gravityYDamp.current,
+              RepaintBoundary(
+                child: CustomPaint(
+                  size: size,
+                  painter: _RiemannianManifoldPainter(
+                    wavePhase: _wavePhase.phase,
+                    flowPhase: _flowPhase.phase,
+                    particlePhase: _particlePhase.phase,
+                    pulsePhase: _pulsePhase.phase,
+                    statusFactor: _statusBlendDamp.current,
+                    trafficFactor: _trafficSpeedDamp.current,
+                    particles: _attractorParticles,
+                    gravityX: _gravityXDamp.current,
+                    gravityY: _gravityYDamp.current,
+                  ),
                 ),
               ),
               widget.child,

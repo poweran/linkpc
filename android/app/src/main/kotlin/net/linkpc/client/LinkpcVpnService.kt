@@ -216,12 +216,12 @@ class LinkpcVpnService : VpnService(), PlatformInterface, CommandServerHandler {
             isRunning = true
             connectedTimeMillis = System.currentTimeMillis()
 
-            // Connect CommandClient to stream live sing-box logs and real traffic metrics
+            // Connect CommandClient to stream live sing-box logs and real traffic metrics (500ms intervals)
             val clientOptions = CommandClientOptions().apply {
                 addCommand(Libbox.CommandLog)
                 addCommand(Libbox.CommandStatus)
-                // Go time.Duration is in nanoseconds: 1_000_000_000L = 1.0 second (not 1000L microseconds!)
-                statusInterval = 1_000_000_000L
+                // Go time.Duration is in nanoseconds: 500_000_000L = 0.5 second for responsive real-time telemetry
+                statusInterval = 500_000_000L
             }
             startMonitoringClient(clientOptions)
 

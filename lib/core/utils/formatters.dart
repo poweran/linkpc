@@ -26,6 +26,15 @@ class Formatters {
     return '${gbps.toStringAsFixed(1)} Гбит/с';
   }
 
+  static String formatPackets(int pkts) {
+    if (pkts <= 0) return '0 пкт/с';
+    if (pkts >= 10000) {
+      final k = pkts / 1000.0;
+      return '${k.toStringAsFixed(1)}k пкт/с';
+    }
+    return '$pkts пкт/с';
+  }
+
   static String formatDuration(Duration d) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     final hours = twoDigits(d.inHours);

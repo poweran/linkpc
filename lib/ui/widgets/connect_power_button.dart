@@ -177,18 +177,20 @@ class _ConnectPowerButtonState extends State<ConnectPowerButton>
               _buildHarmonicAura(primaryColor, pulse, smoothGlow, widget.size),
 
               // Layer 1: Living 4D Clifford Torus & Hopf Fibration Canvas
-              CustomPaint(
-                size: Size(totalSize, totalSize),
-                painter: _HopfFibrationPainter(
-                  matrix4D: full4DMatrix,
-                  stereoDistance: stereoDist,
-                  primaryColor: primaryColor,
-                  secondaryColor: isConnected ? AppColors.cyberCyan : AppColors.hologramPurple,
-                  isConnected: isConnected,
-                  isBusy: isBusy,
-                  glowIntensity: smoothGlow,
-                  flowSpeed: _phaseXW.currentSpeed,
-                  time: _phaseXW.phase,
+              RepaintBoundary(
+                child: CustomPaint(
+                  size: Size(totalSize, totalSize),
+                  painter: _HopfFibrationPainter(
+                    matrix4D: full4DMatrix,
+                    stereoDistance: stereoDist,
+                    primaryColor: primaryColor,
+                    secondaryColor: isConnected ? AppColors.cyberCyan : AppColors.hologramPurple,
+                    isConnected: isConnected,
+                    isBusy: isBusy,
+                    glowIntensity: smoothGlow,
+                    flowSpeed: _phaseXW.currentSpeed,
+                    time: _phaseXW.phase,
+                  ),
                 ),
               ),
 
