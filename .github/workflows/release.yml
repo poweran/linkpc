@@ -276,13 +276,13 @@ jobs:
             curl -L --retry 3 --connect-timeout 10 -o android/app/libs/libbox.aar "https://vless.linkpc.net/downloads/libbox.aar"
           fi
 
-      - name: Fast Build Android APK (arm64-v8a)
+      - name: Build Universal Android APK (ARMv7 + ARM64)
         run: |
-          flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons --android-skip-build-dependency-validation --dart-define=APP_VERSION=${{ needs.prepare-release.outputs.tag }}
+          flutter build apk --release --target-platform android-arm,android-arm64 --no-tree-shake-icons --android-skip-build-dependency-validation --dart-define=APP_VERSION=${{ needs.prepare-release.outputs.tag }}
           mkdir -p output
-          # 64-bit ARM APK only (99.9% of modern phones, ~35MB)
+          # Universal APK (supports both 32-bit and 64-bit ARM phones)
           cp build/app/outputs/flutter-apk/app-release.apk output/linkpc-android.apk
-          cp build/app/outputs/flutter-apk/app-release.apk output/linkpc-android-arm64.apk
+          cp build/app/outputs/flutter-apk/app-release.apk output/linkpc-android-universal.apk
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2

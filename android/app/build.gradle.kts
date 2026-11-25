@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "net.linkpc.client"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 35
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -16,11 +16,11 @@ android {
     defaultConfig {
         applicationId = "net.linkpc.client"
         minSdk = 24
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         ndk {
-            abiFilters += listOf("arm64-v8a")
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
         }
     }
 
@@ -33,7 +33,6 @@ android {
         jniLibs {
             useLegacyPackaging = true
             excludes += listOf(
-                "lib/armeabi-v7a/**",
                 "lib/x86/**",
                 "lib/x86_64/**"
             )
@@ -46,6 +45,8 @@ android {
             storePassword = "linkpc_release_key"
             keyAlias = "linkpc"
             keyPassword = "linkpc_release_key"
+            enableV1Signing = true
+            enableV2Signing = true
         }
     }
 
