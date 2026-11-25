@@ -1,66 +1,124 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import '../models/vpn_state.dart';
 import 'vpn_service.dart';
+
+class PingResult {
+  final int latencyMs;
+  final int jitterMs;
+
+  const PingResult({
+    required this.latencyMs,
+    required this.jitterMs,
+  });
+
+  static const PingResult zero = PingResult(latencyMs: 0, jitterMs: 0);
+}
 
 class PingService {
   static const String host = '188.120.249.117';
   static const int port = 443;
 
-  /// Fast, reliable latency check that never hangs or downloads large payloads.
-  /// Uses lightweight HTTP HEAD and generate_204 probes.
+  static PingResult? lastResult;
+
+  /// Fast, accurate network probe measuring true Round-Trip Time (Latency) and Jitter (RFC 3550).
+  /// Performs consecutive lightweight zero-byte probes to measure delay variance.
+  static Future<PingResult?> measureLatencyAndJitter({int probeCount = 3}) async {
+    final samples = <int>[];
+
+    for (int i = 0; i < probeCount; i++) {
+      final sample = await _singleProbe();
+      if (sample > 0) {
+        samples.add(sample);
+      }
+      if (i < probeCount - 1) {
+        await Future.delayed(const Duration(milliseconds: 30));
+      }
+    }
+
+    if (samples.isEmpty) {
+      return null;
+    }
+
+    // Minimum latency represents true physical RTT without transient queuing delay
+    final minLatency = samples.reduce(min);
+
+    // Jitter calculation: average absolute difference between consecutive packets
+    int jitter = 0;
+    if (samples.length > 1) {
+      int sumDiff = 0;
+      for (int i = 1; i < samples.length; i++) {
+        sumDiff += (samples[i] - samples[i - 1]).abs();
+      }
+      jitter = (sumDiff / (samples.length - 1)).round();
+    }
+
+    final res = PingResult(latencyMs: minLatency, jitterMs: jitter);
+    lastResult = res;
+    return res;
+  }
+
+  /// Backward-compatible single latency check.
   static Future<int> checkLatency() async {
+    final res = await measureLatencyAndJitter(probeCount: 2);
+    return res?.latencyMs ?? -1;
+  }
+
+  static Future<int> _singleProbe() async {
     final sw = Stopwatch()..start();
 
-    // Probe 1: Fast HEAD request to the gateway management host
+    // Strategy 1: Fast HTTP generate_204 probe
     try {
       final client = HttpClient()
-        ..connectionTimeout = const Duration(milliseconds: 1500)
+        ..connectionTimeout = const Duration(milliseconds: 1200)
         ..badCertificateCallback = ((X509Certificate cert, String host, int port) => true);
 
-      if (VpnService.status.isConnected) {
-        client.findProxy = (uri) => 'PROXY 127.0.0.1:2080';
-      }
-
-      final req = await client
-          .openUrl('HEAD', Uri.parse('https://vless.linkpc.net/api/status'))
-          .timeout(const Duration(milliseconds: 1500));
-      final res = await req.close().timeout(const Duration(milliseconds: 1500));
-      await res.drain();
-      sw.stop();
-      client.close();
-      return sw.elapsedMilliseconds;
-    } catch (_) {}
-
-    // Probe 2: Standard generate_204 probe (0-byte payload)
-    try {
-      sw.reset();
-      sw.start();
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(milliseconds: 1500);
-
-      if (VpnService.status.isConnected) {
-        client.findProxy = (uri) => 'PROXY 127.0.0.1:2080';
+      // On desktop platforms with mixed proxy enabled, route via 127.0.0.1:2080
+      if ((Platform.isWindows || Platform.isMacOS || Platform.isLinux) && VpnService.status.isConnected) {
+        client.findProxy = (uri) => 'PROXY 127.0.0.1:2080; DIRECT';
       }
 
       final req = await client
           .getUrl(Uri.parse('https://cp.cloudflare.com/generate_204'))
-          .timeout(const Duration(milliseconds: 1500));
-      final res = await req.close().timeout(const Duration(milliseconds: 1500));
+          .timeout(const Duration(milliseconds: 1200));
+      final res = await req.close().timeout(const Duration(milliseconds: 1200));
       await res.drain();
       sw.stop();
       client.close();
       return sw.elapsedMilliseconds;
     } catch (_) {}
 
-    // Probe 3: Raw TCP socket probe as last resort
+    // Strategy 2: Fast secondary Google connectivity probe
+    try {
+      sw.reset();
+      sw.start();
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(milliseconds: 1200)
+        ..badCertificateCallback = ((X509Certificate cert, String host, int port) => true);
+
+      if ((Platform.isWindows || Platform.isMacOS || Platform.isLinux) && VpnService.status.isConnected) {
+        client.findProxy = (uri) => 'PROXY 127.0.0.1:2080; DIRECT';
+      }
+
+      final req = await client
+          .getUrl(Uri.parse('https://connectivitycheck.gstatic.com/generate_204'))
+          .timeout(const Duration(milliseconds: 1200));
+      final res = await req.close().timeout(const Duration(milliseconds: 1200));
+      await res.drain();
+      sw.stop();
+      client.close();
+      return sw.elapsedMilliseconds;
+    } catch (_) {}
+
+    // Strategy 3: Direct TCP socket connect to the gateway server
     try {
       sw.reset();
       sw.start();
       final socket = await Socket.connect(
         host,
         port,
-        timeout: const Duration(milliseconds: 1500),
+        timeout: const Duration(milliseconds: 1200),
       );
       sw.stop();
       await socket.close();

@@ -34,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
   VpnStatus _status = VpnStatus.disconnected;
   TrafficStats _traffic = TrafficStats.empty();
   int? _pingMs;
+  int? _jitterMs;
   SpeedTestProgress? _speedTestProgress;
   SpeedTestResult? _lastSpeedTestResult;
   bool _isLoading = true;
@@ -45,6 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _logThrottleTimer;
   List<String> _recentLogs = [];
   Timer? _pingTimer;
+  bool _isPingRunning = false;
 
   @override
   void initState() {
@@ -58,7 +60,19 @@ class _HomeScreenState extends State<HomeScreen> {
     _traffic = VpnService.traffic;
 
     _statusSub = VpnService.statusStream.listen((status) {
-      if (mounted) setState(() => _status = status);
+      if (mounted) {
+        setState(() => _status = status);
+        if (status.isConnected) {
+          _refreshPing();
+          _startPingTimer();
+        } else {
+          _pingTimer?.cancel();
+          setState(() {
+            _pingMs = null;
+            _jitterMs = null;
+          });
+        }
+      }
     });
 
     _trafficSub = VpnService.trafficStream.listen((traffic) {
@@ -90,13 +104,38 @@ class _HomeScreenState extends State<HomeScreen> {
     await _loadProfile(token);
     _refreshPing();
 
-    _pingTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (mounted) _refreshPing();
-    });
+    if (_status.isConnected) {
+      _startPingTimer();
+    }
 
     // Auto-connect if enabled
     if (StorageService.getAutoConnect() && _status == VpnStatus.disconnected) {
       _toggleVpn();
+    }
+  }
+
+  void _startPingTimer() {
+    _pingTimer?.cancel();
+    _pingTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (mounted && _status.isConnected) {
+        _refreshPing();
+      }
+    });
+  }
+
+  Future<void> _refreshPing() async {
+    if (_isPingRunning) return;
+    _isPingRunning = true;
+    try {
+      final res = await PingService.measureLatencyAndJitter(probeCount: 3);
+      if (mounted && res != null) {
+        setState(() {
+          _pingMs = res.latencyMs;
+          _jitterMs = res.jitterMs;
+        });
+      }
+    } finally {
+      _isPingRunning = false;
     }
   }
 
@@ -135,13 +174,6 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
       }
-    }
-  }
-
-  Future<void> _refreshPing() async {
-    final ms = await PingService.checkLatency();
-    if (mounted) {
-      setState(() => _pingMs = ms > 0 ? ms : null);
     }
   }
 
@@ -235,8 +267,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ? 'Умный маршрут • РФ напрямую'
                         : 'Полный туннель • Весь трафик')
                     : 'Шлюз готов к подключению',
-                pingMs: _pingMs,
-                onRefreshPing: _refreshPing,
               ),
 
               // Scrollable Main Content
@@ -298,6 +328,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       TrafficCard(
                         stats: _traffic,
                         isConnected: isConnected,
+                        pingMs: _pingMs,
+                        jitterMs: _jitterMs,
                         speedTestProgress: _speedTestProgress,
                         lastSpeedTestResult: _lastSpeedTestResult,
                         onRunSpeedTest: _runSpeedTest,

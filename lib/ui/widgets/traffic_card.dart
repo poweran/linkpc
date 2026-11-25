@@ -17,6 +17,8 @@ import 'cyber_card.dart';
 class TrafficCard extends StatelessWidget {
   final TrafficStats stats;
   final bool isConnected;
+  final int? pingMs;
+  final int? jitterMs;
   final SpeedTestProgress? speedTestProgress;
   final SpeedTestResult? lastSpeedTestResult;
   final VoidCallback? onRunSpeedTest;
@@ -25,6 +27,8 @@ class TrafficCard extends StatelessWidget {
     super.key,
     required this.stats,
     required this.isConnected,
+    this.pingMs,
+    this.jitterMs,
     this.speedTestProgress,
     this.lastSpeedTestResult,
     this.onRunSpeedTest,
@@ -35,6 +39,16 @@ class TrafficCard extends StatelessWidget {
     final isTesting = speedTestProgress?.isRunning ?? false;
     final downSpeed = stats.downloadSpeedBytesPerSec;
     final upSpeed = stats.uploadSpeedBytesPerSec;
+
+    // Real-time effective latency & jitter:
+    // Prioritize active speed test progress, fallback to last test result, then background auto-probe
+    final effectiveLatency = isTesting && speedTestProgress?.latencyMs != null
+        ? speedTestProgress!.latencyMs
+        : (lastSpeedTestResult?.latencyMs ?? pingMs);
+
+    final effectiveJitter = isTesting && speedTestProgress?.jitterMs != null
+        ? speedTestProgress!.jitterMs
+        : (lastSpeedTestResult?.jitterMs ?? jitterMs);
 
     return CyberCard(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -95,7 +109,7 @@ class TrafficCard extends StatelessWidget {
 
           const SizedBox(height: 12),
 
-          // Speed HUD Capsules
+          // Speed HUD Capsules with Integrated Latency & Jitter Badges
           Row(
             children: [
               Expanded(
@@ -105,6 +119,9 @@ class TrafficCard extends StatelessWidget {
                   icon: Icons.south_rounded,
                   accentColor: AppColors.cyberCyan,
                   isActive: isConnected && downSpeed > 0,
+                  metricIcon: Icons.timer_outlined,
+                  metricValue: effectiveLatency != null && isConnected ? '$effectiveLatency ms' : '— ms',
+                  isMetricActive: isConnected && effectiveLatency != null,
                 ),
               ),
               const SizedBox(width: 12),
@@ -115,6 +132,9 @@ class TrafficCard extends StatelessWidget {
                   icon: Icons.north_rounded,
                   accentColor: AppColors.neonEmerald,
                   isActive: isConnected && upSpeed > 0,
+                  metricIcon: Icons.swap_vert_rounded,
+                  metricValue: effectiveJitter != null && isConnected ? '$effectiveJitter ms' : '— ms',
+                  isMetricActive: isConnected && effectiveJitter != null,
                 ),
               ),
             ],
@@ -316,6 +336,9 @@ class TrafficCard extends StatelessWidget {
     required IconData icon,
     required Color accentColor,
     required bool isActive,
+    IconData? metricIcon,
+    String? metricValue,
+    bool isMetricActive = false,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -341,14 +364,41 @@ class TrafficCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 9.5,
-                    fontFamily: 'monospace',
-                    fontWeight: FontWeight.w600,
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 9.5,
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (metricIcon != null && metricValue != null)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            metricIcon,
+                            size: 10.5,
+                            color: isMetricActive ? accentColor.withOpacity(0.85) : AppColors.textMuted,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            metricValue,
+                            style: TextStyle(
+                              color: isMetricActive ? accentColor.withOpacity(0.9) : AppColors.textMuted,
+                              fontSize: 8.5,
+                              fontFamily: 'monospace',
+                              fontWeight: FontWeight.bold,
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 2),
                 Text(
