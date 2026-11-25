@@ -48,6 +48,10 @@ class TrafficCard extends StatelessWidget {
     final downSpeed = stats.downloadSpeedBytesPerSec;
     final upSpeed = stats.uploadSpeedBytesPerSec;
 
+    // During active in-app speed test, reflect the live tested downstream throughput
+    final testDownBytes = ((speedTestProgress?.currentMbps ?? 0) * 125000).round();
+    final effectiveDisplayDownSpeed = (isTesting && testDownBytes > 0) ? testDownBytes : downSpeed;
+
     // Real-time effective latency & jitter for Downstream and Upstream:
     // Prioritize active speed test progress, fallback to last test result, then background auto-probe
     final effectiveDownLatency = isTesting && speedTestProgress?.downLatencyMs != null
@@ -110,9 +114,9 @@ class TrafficCard extends StatelessWidget {
                   ),
                 ],
               ),
-              if (isConnected && (downSpeed > 0 || upSpeed > 0))
+              if (isConnected && (effectiveDisplayDownSpeed > 0 || upSpeed > 0))
                 Text(
-                  Formatters.formatSpeed(downSpeed + upSpeed),
+                  Formatters.formatSpeed(effectiveDisplayDownSpeed + upSpeed),
                   style: const TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 10,
@@ -131,10 +135,10 @@ class TrafficCard extends StatelessWidget {
               Expanded(
                 child: _buildSpeedCapsule(
                   title: 'Входящий',
-                  speedFormatted: isConnected ? Formatters.formatSpeed(downSpeed) : '0.0 Кбит/с',
+                  speedFormatted: isConnected ? Formatters.formatSpeed(effectiveDisplayDownSpeed) : '0.0 Кбит/с',
                   icon: Icons.south_rounded,
                   accentColor: AppColors.cyberCyan,
-                  isActive: isConnected && downSpeed > 0,
+                  isActive: isConnected && (effectiveDisplayDownSpeed > 0 || isTesting),
                   latencyMs: effectiveDownLatency,
                   jitterMs: effectiveDownJitter,
                   isConnected: isConnected,
@@ -169,7 +173,7 @@ class TrafficCard extends StatelessWidget {
             child: ClipRect(
               child: RepaintBoundary(
                 child: _RealtimePacketOscilloscope(
-                  downSpeedBytesPerSec: isConnected ? downSpeed : 0,
+                  downSpeedBytesPerSec: isConnected ? effectiveDisplayDownSpeed : 0,
                   upSpeedBytesPerSec: isConnected ? upSpeed : 0,
                   isConnected: isConnected,
                 ),

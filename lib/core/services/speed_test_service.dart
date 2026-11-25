@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import '../models/vpn_state.dart';
 import 'ping_service.dart';
 import 'vpn_service.dart';
@@ -64,12 +65,15 @@ class SpeedTestService {
     required Function(SpeedTestProgress) onProgress,
   }) async {
     final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 4)
+      ..connectionTimeout = const Duration(seconds: 8)
       ..userAgent =
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
       ..badCertificateCallback = ((X509Certificate cert, String host, int port) => true);
 
-    if ((Platform.isWindows || Platform.isMacOS || Platform.isLinux) && VpnService.status.isConnected) {
+    // Route speed test through the active sing-box tunnel via 127.0.0.1:2080 on all platforms.
+    // On Android, the app package is excluded from the OS TUN interface to avoid VPN loops,
+    // so routing via localhost mixed-proxy is strictly required to measure the true encrypted tunnel speed.
+    if (VpnService.status.isConnected) {
       client.findProxy = (uri) => 'PROXY 127.0.0.1:2080; DIRECT';
     }
 
@@ -97,6 +101,7 @@ class SpeedTestService {
     ));
 
     final testUrls = [
+      'https://speed.cloudflare.com/__down?bytes=5242880',
       'https://speed.cloudflare.com/__down?bytes=10485760',
       'https://vless.linkpc.net/downloads/sing-box',
     ];
@@ -104,14 +109,16 @@ class SpeedTestService {
     for (final testUrl in testUrls) {
       final sw = Stopwatch()..start();
       int receivedBytes = 0;
-      const targetBytes = 10485760; // 10 MB payload target
+      const targetBytes = 5242880; // 5 MB payload target (speed.cloudflare.com baseline)
       int lastReportMs = 0;
 
       try {
-        final req = await client.getUrl(Uri.parse(testUrl)).timeout(const Duration(seconds: 4));
+        final req = await client.getUrl(Uri.parse(testUrl)).timeout(const Duration(seconds: 8));
         req.headers.set(HttpHeaders.userAgentHeader,
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36');
-        final res = await req.close().timeout(const Duration(seconds: 4));
+        req.headers.set(HttpHeaders.acceptHeader, '*/*');
+        req.headers.set(HttpHeaders.cacheControlHeader, 'no-cache, no-store');
+        final res = await req.close().timeout(const Duration(seconds: 8));
 
         if (res.statusCode != 200 && res.statusCode != 206) {
           throw HttpException('Статус сервера: ${res.statusCode}');
@@ -130,7 +137,9 @@ class SpeedTestService {
             lastReportMs = elapsedMs;
             final elapsedSec = elapsedMs / 1000.0;
             final currentMbps = (receivedBytes * 8.0 / (1000 * 1000)) / elapsedSec;
-            final prog = (0.15 + (receivedBytes / targetBytes) * 0.85).clamp(0.15, 0.98);
+            final timeProg = elapsedMs / 7000.0;
+            final bytesProg = receivedBytes / targetBytes;
+            final prog = (0.15 + max(timeProg, bytesProg) * 0.85).clamp(0.15, 0.98);
             onProgress(SpeedTestProgress(
               isRunning: true,
               currentMbps: currentMbps,
@@ -143,7 +152,8 @@ class SpeedTestService {
             ));
           }
 
-          if (receivedBytes >= targetBytes) {
+          // Stop after 7 seconds of streaming or when target bytes are reached
+          if (elapsedMs >= 7000 || receivedBytes >= targetBytes) {
             break;
           }
         }

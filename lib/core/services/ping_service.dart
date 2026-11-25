@@ -74,8 +74,10 @@ class PingService {
       ..connectionTimeout = const Duration(milliseconds: 2500)
       ..badCertificateCallback = ((cert, host, port) => true);
 
-    // На десктопных платформах с включенным mixed proxy направляем через 127.0.0.1:2080
-    if ((Platform.isWindows || Platform.isMacOS || Platform.isLinux) && isConnected) {
+    // При активном VPN направляем замеры через локальный mixed proxy sing-box на 127.0.0.1:2080.
+    // На Android приложение исключено из TUN (addDisallowedApplication),
+    // поэтому обращение через 127.0.0.1:2080 обеспечивает замер именно через зашифрованный туннель.
+    if (isConnected) {
       _persistentClient!.findProxy = (uri) => 'PROXY 127.0.0.1:2080; DIRECT';
     } else {
       _persistentClient!.findProxy = null;

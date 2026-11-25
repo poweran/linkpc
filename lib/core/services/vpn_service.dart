@@ -62,41 +62,50 @@ class VpnService {
         final totalDown = (event['total_down'] as num?)?.toInt() ?? 0;
 
         final now = DateTime.now();
-        double effectiveDownSpeed = rawDownSpeed.toDouble();
-        double effectiveUpSpeed = rawUpSpeed.toDouble();
+        double effectiveDownSpeed = 0.0;
+        double effectiveUpSpeed = 0.0;
 
-        // If native core reported 0 instantaneous speed, calculate speed from accumulated total bytes delta
+        // Calculate accurate real-time speed from cumulative byte delta over exact elapsed wall-clock time
         if (_lastTrafficTimestamp != null && (_lastTotalDown > 0 || _lastTotalUp > 0)) {
-          final elapsedSec = now.difference(_lastTrafficTimestamp!).inMilliseconds / 1000.0;
-          if (elapsedSec > 0.2 && elapsedSec < 10.0) {
+          final elapsedSec = now.difference(_lastTrafficTimestamp!).inMicroseconds / 1000000.0;
+          if (elapsedSec > 0.1 && elapsedSec < 10.0) {
             final deltaDown = totalDown >= _lastTotalDown ? (totalDown - _lastTotalDown) : 0;
             final deltaUp = totalUp >= _lastTotalUp ? (totalUp - _lastTotalUp) : 0;
-            if (rawDownSpeed <= 0 && deltaDown > 0) {
-              effectiveDownSpeed = deltaDown / elapsedSec;
-            }
-            if (rawUpSpeed <= 0 && deltaUp > 0) {
-              effectiveUpSpeed = deltaUp / elapsedSec;
-            }
+
+            effectiveDownSpeed = deltaDown / elapsedSec;
+            effectiveUpSpeed = deltaUp / elapsedSec;
           }
+        }
+
+        // Fallback to raw speed only if cumulative delta is not yet available (first sample)
+        if (effectiveDownSpeed <= 0 && rawDownSpeed > 0) {
+          effectiveDownSpeed = rawDownSpeed.toDouble();
+        }
+        if (effectiveUpSpeed <= 0 && rawUpSpeed > 0) {
+          effectiveUpSpeed = rawUpSpeed.toDouble();
         }
 
         _lastTotalDown = totalDown;
         _lastTotalUp = totalUp;
         _lastTrafficTimestamp = now;
 
-        // Apply Exponential Moving Average (EMA) and gentle decay so speed doesn't flicker to 0 every second
-        if (effectiveDownSpeed > 64) {
-          _smoothedDownSpeed = _smoothedDownSpeed * 0.4 + effectiveDownSpeed * 0.6;
+        // Apply Exponential Moving Average (EMA) for responsive and stable speed display
+        if (effectiveDownSpeed > 0) {
+          _smoothedDownSpeed = _smoothedDownSpeed > 0
+              ? (_smoothedDownSpeed * 0.4 + effectiveDownSpeed * 0.6)
+              : effectiveDownSpeed;
         } else {
-          _smoothedDownSpeed = _smoothedDownSpeed * 0.5;
-          if (_smoothedDownSpeed < 64) _smoothedDownSpeed = 0;
+          _smoothedDownSpeed = _smoothedDownSpeed * 0.65;
+          if (_smoothedDownSpeed < 64) _smoothedDownSpeed = 0.0;
         }
 
-        if (effectiveUpSpeed > 64) {
-          _smoothedUpSpeed = _smoothedUpSpeed * 0.4 + effectiveUpSpeed * 0.6;
+        if (effectiveUpSpeed > 0) {
+          _smoothedUpSpeed = _smoothedUpSpeed > 0
+              ? (_smoothedUpSpeed * 0.4 + effectiveUpSpeed * 0.6)
+              : effectiveUpSpeed;
         } else {
-          _smoothedUpSpeed = _smoothedUpSpeed * 0.5;
-          if (_smoothedUpSpeed < 64) _smoothedUpSpeed = 0;
+          _smoothedUpSpeed = _smoothedUpSpeed * 0.65;
+          if (_smoothedUpSpeed < 64) _smoothedUpSpeed = 0.0;
         }
 
         Duration duration = Duration.zero;

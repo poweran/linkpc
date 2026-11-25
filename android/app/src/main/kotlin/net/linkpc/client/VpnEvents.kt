@@ -197,7 +197,7 @@ object VpnEvents {
         if (!isAppInForeground || eventSink == null) return
 
         val now = android.os.SystemClock.elapsedRealtime()
-        if (now - lastTrafficDispatchTime < 400) return
+        if (now - lastTrafficDispatchTime < 250) return
         lastTrafficDispatchTime = now
 
         mainHandler.post {
