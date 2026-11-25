@@ -45,12 +45,22 @@ class TrafficCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isTesting = speedTestProgress?.isRunning ?? false;
+    final isDownPhase = isTesting && (speedTestProgress?.isDownloadPhase ?? false);
+    final isUpPhase = isTesting && (speedTestProgress?.isUploadPhase ?? false);
+
     final downSpeed = stats.downloadSpeedBytesPerSec;
     final upSpeed = stats.uploadSpeedBytesPerSec;
 
-    // During active in-app speed test, reflect the live tested downstream throughput
-    final testDownBytes = ((speedTestProgress?.currentMbps ?? 0) * 125000).round();
-    final effectiveDisplayDownSpeed = (isTesting && testDownBytes > 0) ? testDownBytes : downSpeed;
+    // During active in-app speed test, reflect the live tested downstream/upstream throughput
+    final testDownBytes = ((isDownPhase ? speedTestProgress?.currentMbps : null) != null)
+        ? (speedTestProgress!.currentMbps * 125000).round()
+        : 0;
+    final effectiveDisplayDownSpeed = (isDownPhase && testDownBytes > 0) ? testDownBytes : downSpeed;
+
+    final testUpBytes = ((isUpPhase ? speedTestProgress?.currentMbps : null) != null)
+        ? (speedTestProgress!.currentMbps * 125000).round()
+        : 0;
+    final effectiveDisplayUpSpeed = (isUpPhase && testUpBytes > 0) ? testUpBytes : upSpeed;
 
     // Real-time effective latency & jitter for Downstream and Upstream:
     // Prioritize active speed test progress, fallback to last test result, then background auto-probe
@@ -114,9 +124,9 @@ class TrafficCard extends StatelessWidget {
                   ),
                 ],
               ),
-              if (isConnected && (effectiveDisplayDownSpeed > 0 || upSpeed > 0))
+              if (isConnected && (effectiveDisplayDownSpeed > 0 || effectiveDisplayUpSpeed > 0))
                 Text(
-                  Formatters.formatSpeed(effectiveDisplayDownSpeed + upSpeed),
+                  Formatters.formatSpeed(effectiveDisplayDownSpeed + effectiveDisplayUpSpeed),
                   style: const TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 10,
@@ -138,7 +148,7 @@ class TrafficCard extends StatelessWidget {
                   speedFormatted: isConnected ? Formatters.formatSpeed(effectiveDisplayDownSpeed) : '0.0 Кбит/с',
                   icon: Icons.south_rounded,
                   accentColor: AppColors.cyberCyan,
-                  isActive: isConnected && (effectiveDisplayDownSpeed > 0 || isTesting),
+                  isActive: isConnected && (effectiveDisplayDownSpeed > 0 || isDownPhase),
                   latencyMs: effectiveDownLatency,
                   jitterMs: effectiveDownJitter,
                   isConnected: isConnected,
@@ -148,10 +158,10 @@ class TrafficCard extends StatelessWidget {
               Expanded(
                 child: _buildSpeedCapsule(
                   title: 'Исходящий',
-                  speedFormatted: isConnected ? Formatters.formatSpeed(upSpeed) : '0.0 Кбит/с',
+                  speedFormatted: isConnected ? Formatters.formatSpeed(effectiveDisplayUpSpeed) : '0.0 Кбит/с',
                   icon: Icons.north_rounded,
                   accentColor: AppColors.neonEmerald,
-                  isActive: isConnected && upSpeed > 0,
+                  isActive: isConnected && (effectiveDisplayUpSpeed > 0 || isUpPhase),
                   latencyMs: effectiveUpLatency,
                   jitterMs: effectiveUpJitter,
                   isConnected: isConnected,
@@ -174,7 +184,7 @@ class TrafficCard extends StatelessWidget {
               child: RepaintBoundary(
                 child: _RealtimePacketOscilloscope(
                   downSpeedBytesPerSec: isConnected ? effectiveDisplayDownSpeed : 0,
-                  upSpeedBytesPerSec: isConnected ? upSpeed : 0,
+                  upSpeedBytesPerSec: isConnected ? effectiveDisplayUpSpeed : 0,
                   isConnected: isConnected,
                 ),
               ),
@@ -244,28 +254,35 @@ class TrafficCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      const SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: AppColors.neonEmerald,
+                  Expanded(
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: isUpPhase ? AppColors.neonEmerald : AppColors.cyberCyan,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Замер: ${speedTestProgress?.statusText ?? ""}',
-                        style: const TextStyle(
-                          color: AppColors.neonEmerald,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'monospace',
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Замер: ${speedTestProgress?.statusText ?? ""}',
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                            style: TextStyle(
+                              color: isUpPhase ? AppColors.neonEmerald : AppColors.cyberCyan,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
+                  const SizedBox(width: 8),
                   Text(
                     '${((speedTestProgress?.progress ?? 0.0) * 100).toInt()}%',
                     style: const TextStyle(
@@ -283,30 +300,39 @@ class TrafficCard extends StatelessWidget {
                   value: speedTestProgress?.progress ?? 0.0,
                   minHeight: 3,
                   backgroundColor: AppColors.surface,
-                  valueColor: const AlwaysStoppedAnimation<Color>(AppColors.neonEmerald),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    isUpPhase ? AppColors.neonEmerald : AppColors.cyberCyan,
+                  ),
                 ),
               ),
             ] else ...[
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.speed_rounded, size: 14, color: AppColors.cyberCyan),
-                      const SizedBox(width: 6),
-                      Text(
-                        lastSpeedTestResult != null
-                            ? 'Скорость: ${lastSpeedTestResult!.formattedMbps}'
-                            : 'Тест скорости',
-                        style: TextStyle(
-                          color: lastSpeedTestResult != null ? AppColors.neonEmerald : AppColors.textSecondary,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'monospace',
+                  Expanded(
+                    child: Row(
+                      children: [
+                        const Icon(Icons.speed_rounded, size: 14, color: AppColors.cyberCyan),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            lastSpeedTestResult != null
+                                ? 'Скорость: ${lastSpeedTestResult!.formattedMbps}'
+                                : 'Тест скорости',
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                            style: TextStyle(
+                              color: lastSpeedTestResult != null ? AppColors.neonEmerald : AppColors.textSecondary,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
+                  const SizedBox(width: 8),
                   InkWell(
                     onTap: onRunSpeedTest,
                     child: Container(
