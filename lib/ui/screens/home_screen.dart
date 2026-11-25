@@ -220,6 +220,8 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: AppColors.background,
       body: MultidimensionalSpace(
         status: _status,
+        trafficBytesPerSec: isConnected ? (_traffic.downloadSpeedBytesPerSec + _traffic.uploadSpeedBytesPerSec) : 0,
+        pingMs: _pingMs,
         child: SafeArea(
           child: Column(
             children: [
@@ -245,6 +247,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       Center(
                         child: ConnectPowerButton(
                           status: _status,
+                          trafficBytesPerSec: isConnected
+                              ? (_traffic.downloadSpeedBytesPerSec + _traffic.uploadSpeedBytesPerSec)
+                              : 0,
+                          pingMs: _pingMs,
                           onTap: _toggleVpn,
                         ),
                       ),

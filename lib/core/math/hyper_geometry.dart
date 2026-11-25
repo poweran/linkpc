@@ -299,6 +299,55 @@ class EdgeIndex {
   const EdgeIndex(this.a, this.b);
 }
 
+/// Critically damped smoothing filter for continuous C² transitions without overshoot.
+class SmoothDamp {
+  double current;
+  double velocity;
+
+  SmoothDamp({this.current = 0.0, this.velocity = 0.0});
+
+  double update(double target, double smoothTime, double dt, {double maxSpeed = double.infinity}) {
+    smoothTime = max(0.0001, smoothTime);
+    final omega = 2.0 / smoothTime;
+    final x = omega * dt;
+    final expFactor = 1.0 / (1.0 + x + 0.48 * x * x + 0.235 * x * x * x);
+    var change = current - target;
+    final originalTo = target;
+
+    final maxChange = maxSpeed * smoothTime;
+    change = change.clamp(-maxChange, maxChange);
+    target = current - change;
+
+    final temp = (velocity + omega * change) * dt;
+    velocity = (velocity - omega * temp) * expFactor;
+    var output = target + (change + temp) * expFactor;
+
+    if ((originalTo - current > 0.0) == (output > originalTo)) {
+      output = originalTo;
+      velocity = dt > 0 ? (output - originalTo) / dt : 0.0;
+    }
+
+    current = output;
+    return current;
+  }
+}
+
+/// Continuous phase and momentum integrator for jerk-free rotational and wave dynamics.
+/// Guaranteed C¹ continuity: θ(t) = ∫ ω(t) dt.
+class PhaseIntegrator {
+  double phase = 0.0;
+  double currentSpeed = 0.0;
+
+  PhaseIntegrator({this.phase = 0.0, this.currentSpeed = 0.0});
+
+  double update(double targetSpeed, double dt, {double responsiveness = 4.5}) {
+    final blend = 1.0 - exp(-responsiveness * dt);
+    currentSpeed += (targetSpeed - currentSpeed) * blend;
+    phase += currentSpeed * dt;
+    return phase;
+  }
+}
+
 /// Fourier series generator for network flow harmonics.
 /// y(x, t) = Σ [ Aₖ · sin(k·ω·x - ωₖ·t + φₖ) ]
 class FourierFlowHarmonics {

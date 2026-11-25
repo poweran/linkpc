@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/math/hyper_geometry.dart';
 import '../../core/models/traffic_stats.dart';
@@ -8,7 +9,8 @@ import '../../core/utils/formatters.dart';
 import 'cyber_card.dart';
 
 /// Multidimensional Traffic Card driven by true Fourier spectral decomposition
-/// of network stream throughput, caustic wave fills, and golden ratio telemetry.
+/// of network stream throughput, with critically damped speed interpolation and
+/// continuous phase integration (100% continuous, zero visual leaps).
 class TrafficCard extends StatefulWidget {
   final TrafficStats stats;
   final bool isConnected;
@@ -31,20 +33,64 @@ class TrafficCard extends StatefulWidget {
 
 class _TrafficCardState extends State<TrafficCard>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _spectralController;
+  late final Ticker _ticker;
+  Duration _lastElapsed = Duration.zero;
+
+  // Critically Damped Smoothers for continuous metric flow
+  final SmoothDamp _downSpeedDamp = SmoothDamp();
+  final SmoothDamp _upSpeedDamp = SmoothDamp();
+  final SmoothDamp _connectionDamp = SmoothDamp();
+
+  // Continuous Phase Integrators (zero phase jumps)
+  final PhaseIntegrator _inboundPhase = PhaseIntegrator();
+  final PhaseIntegrator _outboundPhase = PhaseIntegrator();
 
   @override
   void initState() {
     super.initState();
-    _spectralController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 3600),
-    )..repeat();
+    _ticker = createTicker(_onTick)..start();
+  }
+
+  void _onTick(Duration elapsed) {
+    if (!mounted) return;
+    final dt = _lastElapsed == Duration.zero
+        ? 0.016
+        : (elapsed - _lastElapsed).inMicroseconds / 1000000.0;
+    _lastElapsed = elapsed;
+
+    final clampedDt = dt.clamp(0.001, 0.05);
+
+    // Smoothly interpolate throughput values without sudden leaps
+    final targetDown = widget.isConnected ? widget.stats.downloadSpeedBytesPerSec.toDouble() : 0.0;
+    final targetUp = widget.isConnected ? widget.stats.uploadSpeedBytesPerSec.toDouble() : 0.0;
+
+    _downSpeedDamp.update(targetDown, 0.22, clampedDt);
+    _upSpeedDamp.update(targetUp, 0.22, clampedDt);
+
+    final targetConnected = widget.isConnected ? 1.0 : 0.0;
+    _connectionDamp.update(targetConnected, 0.35, clampedDt);
+
+    // Dynamic wave propagation velocity correlated with smoothed bitrate
+    final downNorm = (_downSpeedDamp.current > 0
+        ? (log(_downSpeedDamp.current + 10) / log(100000000)).clamp(0.1, 1.0)
+        : 0.1);
+    final upNorm = (_upSpeedDamp.current > 0
+        ? (log(_upSpeedDamp.current + 10) / log(100000000)).clamp(0.1, 1.0)
+        : 0.1);
+
+    final downWaveSpeed = 1.2 + downNorm * 4.2;
+    final upWaveSpeed = 1.0 + upNorm * 3.6;
+
+    // Integrate wave phase monotonically: Φ(t + dt) = Φ(t) + v(t) · dt
+    _inboundPhase.update(downWaveSpeed, clampedDt, responsiveness: 3.5);
+    _outboundPhase.update(upWaveSpeed, clampedDt, responsiveness: 3.5);
+
+    setState(() {});
   }
 
   @override
   void dispose() {
-    _spectralController.dispose();
+    _ticker.dispose();
     super.dispose();
   }
 
@@ -152,7 +198,7 @@ class _TrafficCardState extends State<TrafficCard>
 
           const SizedBox(height: 12),
 
-          // Real-time Fourier Harmonic Oscilloscope Screen
+          // Real-time Smooth Fourier Harmonic Oscilloscope Screen
           Container(
             height: 48,
             width: double.infinity,
@@ -161,18 +207,14 @@ class _TrafficCardState extends State<TrafficCard>
               border: Border.all(color: AppColors.border.withOpacity(0.7)),
             ),
             child: ClipRect(
-              child: AnimatedBuilder(
-                animation: _spectralController,
-                builder: (context, _) {
-                  return CustomPaint(
-                    painter: _FourierHarmonicVisualizerPainter(
-                      progress: _spectralController.value,
-                      isConnected: isConnected,
-                      downBytesPerSec: downSpeed,
-                      upBytesPerSec: upSpeed,
-                    ),
-                  );
-                },
+              child: CustomPaint(
+                painter: _ContinuousFourierVisualizerPainter(
+                  inboundPhase: _inboundPhase.phase,
+                  outboundPhase: _outboundPhase.phase,
+                  smoothedDownSpeed: _downSpeedDamp.current,
+                  smoothedUpSpeed: _upSpeedDamp.current,
+                  connectedFactor: _connectionDamp.current,
+                ),
               ),
             ),
           ),
@@ -407,18 +449,20 @@ class _TrafficCardState extends State<TrafficCard>
   }
 }
 
-/// Custom painter executing real-time Fourier series wave synthesis with caustic fills.
-class _FourierHarmonicVisualizerPainter extends CustomPainter {
-  final double progress;
-  final bool isConnected;
-  final int downBytesPerSec;
-  final int upBytesPerSec;
+/// Custom painter executing real-time Fourier series wave synthesis with zero discontinuities.
+class _ContinuousFourierVisualizerPainter extends CustomPainter {
+  final double inboundPhase;
+  final double outboundPhase;
+  final double smoothedDownSpeed;
+  final double smoothedUpSpeed;
+  final double connectedFactor;
 
-  _FourierHarmonicVisualizerPainter({
-    required this.progress,
-    required this.isConnected,
-    required this.downBytesPerSec,
-    required this.upBytesPerSec,
+  _ContinuousFourierVisualizerPainter({
+    required this.inboundPhase,
+    required this.outboundPhase,
+    required this.smoothedDownSpeed,
+    required this.smoothedUpSpeed,
+    required this.connectedFactor,
   });
 
   @override
@@ -426,42 +470,28 @@ class _FourierHarmonicVisualizerPainter extends CustomPainter {
     final midY = size.height * 0.5;
     final w = size.width;
 
-    // Harmonic Centerline & Grid Coordinates
+    // Center Coordinate Reticle
     final gridPaint = Paint()
       ..color = AppColors.border.withOpacity(0.35)
       ..strokeWidth = 0.6;
     canvas.drawLine(Offset(0, midY), Offset(w, midY), gridPaint);
     canvas.drawLine(Offset(w * 0.5, 0), Offset(w * 0.5, size.height), gridPaint);
 
-    final time = progress * MathConstants.tau;
+    // Continuous Amplitude Scaling
+    final maxAmp = size.height * 0.42;
 
-    if (!isConnected) {
-      // Ethereal Standing Wave Equilibrium: y = A · sin(kx) · cos(ωt)
-      final eqPath = Path();
-      eqPath.moveTo(0, midY);
-      for (double x = 0; x <= w; x += 2) {
-        final t = x / w;
-        final y = midY + sin(t * MathConstants.tau * 2.0) * cos(time) * 3.5;
-        eqPath.lineTo(x, y);
-      }
-      final eqPaint = Paint()
-        ..color = AppColors.cyberCyan.withOpacity(0.25)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0;
-      canvas.drawPath(eqPath, eqPaint);
-      return;
-    }
+    final downIntensity = (smoothedDownSpeed > 0
+        ? (log(smoothedDownSpeed + 10) / log(100000000)).clamp(0.12, 1.0)
+        : 0.12) * maxAmp * connectedFactor;
 
-    // Dynamic Fundamental Amplitudes in logarithmic scale
-    final downIntensity = (downBytesPerSec > 0
-        ? (log(downBytesPerSec + 10) / log(100000000)).clamp(0.2, 1.0)
-        : 0.12) * (size.height * 0.38);
+    final upIntensity = (smoothedUpSpeed > 0
+        ? (log(smoothedUpSpeed + 10) / log(100000000)).clamp(0.12, 1.0)
+        : 0.12) * (maxAmp * 0.85) * connectedFactor;
 
-    final upIntensity = (upBytesPerSec > 0
-        ? (log(upBytesPerSec + 10) / log(100000000)).clamp(0.2, 1.0)
-        : 0.12) * (size.height * 0.32);
+    // Resting equilibrium standing wave when disconnected
+    final restingAmp = (1.0 - connectedFactor) * 3.5;
 
-    // 1. Inbound Fourier Harmonic Ribbon (Cyan with Caustic Fill)
+    // 1. Inbound Fourier Ribbon with Caustic Fill
     final downPath = Path();
     final downFillPath = Path();
     downPath.moveTo(0, midY);
@@ -469,65 +499,75 @@ class _FourierHarmonicVisualizerPainter extends CustomPainter {
 
     for (double x = 0; x <= w; x += 2.0) {
       final nx = x / w;
-      // Multi-harmonic Fourier Synthesis: Fundamental + 4 Harmonics
-      final yOffset = FourierFlowHarmonics.evaluate(
+
+      // Active Fourier series
+      final activeY = FourierFlowHarmonics.evaluate(
         normalizedX: nx,
-        time: time,
+        time: inboundPhase,
         baseFrequency: 1.5,
         fundamentalAmp: downIntensity,
         harmonicCount: 4,
       );
-      final y = midY - yOffset;
+
+      // Resting equilibrium oscillation
+      final restingY = sin(nx * MathConstants.tau * 2.0) * cos(inboundPhase) * restingAmp;
+
+      final y = midY - (activeY + restingY);
       downPath.lineTo(x, y);
       downFillPath.lineTo(x, y);
     }
     downFillPath.lineTo(w, midY);
     downFillPath.close();
 
-    // Caustic Under-Wave Fill
-    final downFillPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          AppColors.cyberCyan.withOpacity(0.22),
-          AppColors.cyberCyan.withOpacity(0.0),
-        ],
-      ).createShader(Rect.fromLTWH(0, 0, w, size.height))
-      ..style = PaintingStyle.fill;
-    canvas.drawPath(downFillPath, downFillPaint);
-
-    final downLinePaint = Paint()
-      ..color = AppColors.cyberCyan
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.4;
-    canvas.drawPath(downPath, downLinePaint);
-
-    // 2. Outbound Harmonic Wave (Neon Emerald)
-    final upPath = Path();
-    upPath.moveTo(0, midY);
-    for (double x = 0; x <= w; x += 2.0) {
-      final nx = x / w;
-      final yOffset = FourierFlowHarmonics.evaluate(
-        normalizedX: nx,
-        time: -time * 0.8,
-        baseFrequency: 2.0,
-        fundamentalAmp: upIntensity,
-        harmonicCount: 3,
-      );
-      final y = midY + yOffset;
-      upPath.lineTo(x, y);
+    // Caustic Under-Wave Gradient Fill
+    if (connectedFactor > 0.05) {
+      final downFillPaint = Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            AppColors.cyberCyan.withOpacity(0.22 * connectedFactor),
+            AppColors.cyberCyan.withOpacity(0.0),
+          ],
+        ).createShader(Rect.fromLTWH(0, 0, w, size.height))
+        ..style = PaintingStyle.fill;
+      canvas.drawPath(downFillPath, downFillPaint);
     }
 
-    final upLinePaint = Paint()
-      ..color = AppColors.neonEmerald.withOpacity(0.75)
+    final downLinePaint = Paint()
+      ..color = AppColors.cyberCyan.withOpacity(0.3 + connectedFactor * 0.7)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2;
-    canvas.drawPath(upPath, upLinePaint);
+      ..strokeWidth = 1.3;
+    canvas.drawPath(downPath, downLinePaint);
+
+    // 2. Outbound Harmonic Wave (Emerald Caustic Ribbon)
+    if (connectedFactor > 0.05) {
+      final upPath = Path();
+      upPath.moveTo(0, midY);
+
+      for (double x = 0; x <= w; x += 2.0) {
+        final nx = x / w;
+        final activeY = FourierFlowHarmonics.evaluate(
+          normalizedX: nx,
+          time: outboundPhase,
+          baseFrequency: 2.0,
+          fundamentalAmp: upIntensity,
+          harmonicCount: 3,
+        );
+        final y = midY + activeY;
+        upPath.lineTo(x, y);
+      }
+
+      final upLinePaint = Paint()
+        ..color = AppColors.neonEmerald.withOpacity(0.75 * connectedFactor)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2;
+      canvas.drawPath(upPath, upLinePaint);
+    }
   }
 
   @override
-  bool shouldRepaint(covariant _FourierHarmonicVisualizerPainter oldDelegate) {
+  bool shouldRepaint(covariant _ContinuousFourierVisualizerPainter oldDelegate) {
     return true;
   }
 }
