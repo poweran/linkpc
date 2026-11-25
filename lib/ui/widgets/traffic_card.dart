@@ -17,6 +17,10 @@ import 'cyber_card.dart';
 class TrafficCard extends StatelessWidget {
   final TrafficStats stats;
   final bool isConnected;
+  final int? downPingMs;
+  final int? downJitterMs;
+  final int? upPingMs;
+  final int? upJitterMs;
   final int? pingMs;
   final int? jitterMs;
   final SpeedTestProgress? speedTestProgress;
@@ -27,6 +31,10 @@ class TrafficCard extends StatelessWidget {
     super.key,
     required this.stats,
     required this.isConnected,
+    this.downPingMs,
+    this.downJitterMs,
+    this.upPingMs,
+    this.upJitterMs,
     this.pingMs,
     this.jitterMs,
     this.speedTestProgress,
@@ -40,15 +48,23 @@ class TrafficCard extends StatelessWidget {
     final downSpeed = stats.downloadSpeedBytesPerSec;
     final upSpeed = stats.uploadSpeedBytesPerSec;
 
-    // Real-time effective latency & jitter:
+    // Real-time effective latency & jitter for Downstream and Upstream:
     // Prioritize active speed test progress, fallback to last test result, then background auto-probe
-    final effectiveLatency = isTesting && speedTestProgress?.latencyMs != null
-        ? speedTestProgress!.latencyMs
-        : (lastSpeedTestResult?.latencyMs ?? pingMs);
+    final effectiveDownLatency = isTesting && speedTestProgress?.downLatencyMs != null
+        ? speedTestProgress!.downLatencyMs
+        : (lastSpeedTestResult?.downLatencyMs ?? downPingMs ?? pingMs);
 
-    final effectiveJitter = isTesting && speedTestProgress?.jitterMs != null
-        ? speedTestProgress!.jitterMs
-        : (lastSpeedTestResult?.jitterMs ?? jitterMs);
+    final effectiveDownJitter = isTesting && speedTestProgress?.downJitterMs != null
+        ? speedTestProgress!.downJitterMs
+        : (lastSpeedTestResult?.downJitterMs ?? downJitterMs ?? jitterMs);
+
+    final effectiveUpLatency = isTesting && speedTestProgress?.upLatencyMs != null
+        ? speedTestProgress!.upLatencyMs
+        : (lastSpeedTestResult?.upLatencyMs ?? upPingMs ?? effectiveDownLatency);
+
+    final effectiveUpJitter = isTesting && speedTestProgress?.upJitterMs != null
+        ? speedTestProgress!.upJitterMs
+        : (lastSpeedTestResult?.upJitterMs ?? upJitterMs ?? effectiveDownJitter);
 
     return CyberCard(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -109,7 +125,7 @@ class TrafficCard extends StatelessWidget {
 
           const SizedBox(height: 12),
 
-          // Speed HUD Capsules with Integrated Latency & Jitter Badges
+          // Speed HUD Capsules with Integrated Dual Latency & Jitter Badges
           Row(
             children: [
               Expanded(
@@ -119,9 +135,9 @@ class TrafficCard extends StatelessWidget {
                   icon: Icons.south_rounded,
                   accentColor: AppColors.cyberCyan,
                   isActive: isConnected && downSpeed > 0,
-                  metricIcon: Icons.timer_outlined,
-                  metricValue: effectiveLatency != null && isConnected ? '$effectiveLatency ms' : '— ms',
-                  isMetricActive: isConnected && effectiveLatency != null,
+                  latencyMs: effectiveDownLatency,
+                  jitterMs: effectiveDownJitter,
+                  isConnected: isConnected,
                 ),
               ),
               const SizedBox(width: 12),
@@ -132,9 +148,9 @@ class TrafficCard extends StatelessWidget {
                   icon: Icons.north_rounded,
                   accentColor: AppColors.neonEmerald,
                   isActive: isConnected && upSpeed > 0,
-                  metricIcon: Icons.swap_vert_rounded,
-                  metricValue: effectiveJitter != null && isConnected ? '$effectiveJitter ms' : '— ms',
-                  isMetricActive: isConnected && effectiveJitter != null,
+                  latencyMs: effectiveUpLatency,
+                  jitterMs: effectiveUpJitter,
+                  isConnected: isConnected,
                 ),
               ),
             ],
@@ -336,9 +352,9 @@ class TrafficCard extends StatelessWidget {
     required IconData icon,
     required Color accentColor,
     required bool isActive,
-    IconData? metricIcon,
-    String? metricValue,
-    bool isMetricActive = false,
+    int? latencyMs,
+    int? jitterMs,
+    bool isConnected = false,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -350,6 +366,7 @@ class TrafficCard extends StatelessWidget {
         ),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
             padding: const EdgeInsets.all(5),
@@ -363,53 +380,95 @@ class TrafficCard extends StatelessWidget {
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: AppColors.textMuted,
-                        fontSize: 9.5,
-                        fontFamily: 'monospace',
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (metricIcon != null && metricValue != null)
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            metricIcon,
-                            size: 10.5,
-                            color: isMetricActive ? accentColor.withOpacity(0.85) : AppColors.textMuted,
-                          ),
-                          const SizedBox(width: 3),
-                          Text(
-                            metricValue,
-                            style: TextStyle(
-                              color: isMetricActive ? accentColor.withOpacity(0.9) : AppColors.textMuted,
-                              fontSize: 8.5,
-                              fontFamily: 'monospace',
-                              fontWeight: FontWeight.bold,
-                              fontFeatures: const [FontFeature.tabularFigures()],
-                            ),
-                          ),
-                        ],
-                      ),
-                  ],
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 9.5,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   speedFormatted,
                   overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
                   style: TextStyle(
                     color: isActive ? AppColors.textPrimary : AppColors.textSecondary,
-                    fontSize: 12.5,
+                    fontSize: 12.0,
                     fontWeight: FontWeight.w900,
                     fontFamily: 'monospace',
                     fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+                const SizedBox(height: 3),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Tooltip(
+                        message: 'Задержка',
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.timer_outlined,
+                              size: 9.5,
+                              color: isConnected && latencyMs != null
+                                  ? accentColor.withOpacity(0.85)
+                                  : AppColors.textMuted,
+                            ),
+                            const SizedBox(width: 2.5),
+                            Text(
+                              isConnected && latencyMs != null ? '$latencyMs ms' : '— ms',
+                              style: TextStyle(
+                                color: isConnected && latencyMs != null
+                                    ? accentColor.withOpacity(0.9)
+                                    : AppColors.textMuted,
+                                fontSize: 8.5,
+                                fontFamily: 'monospace',
+                                fontWeight: FontWeight.bold,
+                                fontFeatures: const [FontFeature.tabularFigures()],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                      Tooltip(
+                        message: 'Джиттер',
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.swap_vert_rounded,
+                              size: 9.5,
+                              color: isConnected && jitterMs != null
+                                  ? accentColor.withOpacity(0.85)
+                                  : AppColors.textMuted,
+                            ),
+                            const SizedBox(width: 2.5),
+                            Text(
+                              isConnected && jitterMs != null ? '$jitterMs ms' : '— ms',
+                              style: TextStyle(
+                                color: isConnected && jitterMs != null
+                                    ? accentColor.withOpacity(0.9)
+                                    : AppColors.textMuted,
+                                fontSize: 8.5,
+                                fontFamily: 'monospace',
+                                fontWeight: FontWeight.bold,
+                                fontFeatures: const [FontFeature.tabularFigures()],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],

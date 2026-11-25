@@ -5,29 +5,57 @@ import '../models/vpn_state.dart';
 import 'vpn_service.dart';
 
 class PingResult {
-  final int latencyMs;
-  final int jitterMs;
+  /// Downstream (входящий) сетевой RTT и джиттер
+  final int downLatencyMs;
+  final int downJitterMs;
+
+  /// Upstream (исходящий) сетевой RTT и джиттер
+  final int upLatencyMs;
+  final int upJitterMs;
+
+  /// Обратная совместимость с компонентами, ожидающими latencyMs / jitterMs
+  int get latencyMs => downLatencyMs;
+  int get jitterMs => downJitterMs;
 
   const PingResult({
-    required this.latencyMs,
-    required this.jitterMs,
+    required this.downLatencyMs,
+    required this.downJitterMs,
+    required this.upLatencyMs,
+    required this.upJitterMs,
   });
 
-  static const PingResult zero = PingResult(latencyMs: 0, jitterMs: 0);
+  static const PingResult zero = PingResult(
+    downLatencyMs: 0,
+    downJitterMs: 0,
+    upLatencyMs: 0,
+    upJitterMs: 0,
+  );
+
+  @override
+  String toString() =>
+      'PingResult(down: ${downLatencyMs}ms/jitter:${downJitterMs}ms, up: ${upLatencyMs}ms/jitter:${upJitterMs}ms)';
 }
 
-/// High-Precision Network Latency and Jitter Engine matching speed.cloudflare.com:
-/// 1. Uses official Cloudflare Speed Test zero-byte probe: https://speed.cloudflare.com/__down?bytes=0
-/// 2. Uses persistent HTTP/1.1 Keep-Alive connections to isolate pure network Round-Trip Time (RTT).
-/// 3. Extracts server-side execution timing via Server-Timing header (cfReqDur / cfSpeedEdge / cfSpeedWorker).
-/// 4. Computes Median Latency (ignoring transient OS spikes) and Consecutive Difference Jitter (RFC 3550).
+/// Высокоточный движок сетевых замеров по методологии speed.cloudflare.com:
+/// 1. Входящий канал (Downstream): 0-byte GET на https://speed.cloudflare.com/__down?bytes=0
+/// 2. Исходящий канал (Upstream): 0-byte POST на https://speed.cloudflare.com/__up
+/// 3. Постоянное HTTP/1.1 Keep-Alive соединение для изоляции чистого сетевого RTT без handshake.
+/// 4. Извлечение серверного времени исполнения через заголовок Server-Timing.
+/// 5. Расчет задержки (медиана) и джиттера (RFC 3550) для обоих направлений трафика.
 class PingService {
+  static const String _cfSpeedDownEndpoint = 'https://speed.cloudflare.com/__down?bytes=0';
+  static const String _cfSpeedUpEndpoint = 'https://speed.cloudflare.com/__up';
+  static const String _cfGen204Endpoint = 'https://cp.cloudflare.com/generate_204';
+
+  static const String _userAgent =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
   static PingResult? lastResult;
 
   static HttpClient? _persistentClient;
   static bool? _lastConnectedState;
 
-  /// Resets the persistent HTTP client (e.g. when VPN tunnel toggles)
+  /// Сброс HTTP-клиента при переключении состояния VPN
   static void resetClient() {
     _persistentClient?.close(force: true);
     _persistentClient = null;
@@ -46,7 +74,7 @@ class PingService {
       ..connectionTimeout = const Duration(milliseconds: 2500)
       ..badCertificateCallback = ((cert, host, port) => true);
 
-    // On desktop platforms with mixed proxy enabled, route via 127.0.0.1:2080
+    // На десктопных платформах с включенным mixed proxy направляем через 127.0.0.1:2080
     if ((Platform.isWindows || Platform.isMacOS || Platform.isLinux) && isConnected) {
       _persistentClient!.findProxy = (uri) => 'PROXY 127.0.0.1:2080; DIRECT';
     } else {
@@ -56,100 +84,137 @@ class PingService {
     return _persistentClient!;
   }
 
-  /// Measures Latency & Jitter exactly as speed.cloudflare.com does.
-  static Future<PingResult?> measureLatencyAndJitter({int probeCount = 5}) async {
+  /// Замер входящей и исходящей задержки и джиттера по алгоритму speed.cloudflare.com
+  static Future<PingResult?> measureLatencyAndJitter({int probeCount = 3}) async {
     final client = _getClient();
-    final rawSamples = <double>[];
+    final downSamples = <double>[];
+    final upSamples = <double>[];
 
-    // Warm-up probe: Establishes TCP 3-way handshake + TLS 1.3 session so subsequent probes measure pure RTT
-    await _singleCloudflareProbe(client, isWarmup: true);
+    // --- 1. Downstream (Входящий канал: GET) ---
+    // Прогревочный запрос: устраняет задержку первого TCP/TLS handshake
+    await _singleProbe(client, method: 'GET', url: _cfSpeedDownEndpoint, isWarmup: true);
 
-    // Consecutive measurements across the persistent connection
     for (int i = 0; i < probeCount; i++) {
-      final rtt = await _singleCloudflareProbe(client, isWarmup: false);
+      final rtt = await _singleProbe(client, method: 'GET', url: _cfSpeedDownEndpoint, isWarmup: false);
       if (rtt != null && rtt > 0) {
-        rawSamples.add(rtt);
+        downSamples.add(rtt);
       }
       if (i < probeCount - 1) {
-        await Future.delayed(const Duration(milliseconds: 25));
+        await Future.delayed(const Duration(milliseconds: 20));
       }
     }
 
-    // Fallback probe to cp.cloudflare.com if speed.cloudflare.com was blocked
-    if (rawSamples.isEmpty) {
+    // --- 2. Upstream (Исходящий канал: POST 0 байт) ---
+    await _singleProbe(client, method: 'POST', url: _cfSpeedUpEndpoint, isWarmup: true);
+
+    for (int i = 0; i < probeCount; i++) {
+      final rtt = await _singleProbe(client, method: 'POST', url: _cfSpeedUpEndpoint, isWarmup: false);
+      if (rtt != null && rtt > 0) {
+        upSamples.add(rtt);
+      }
+      if (i < probeCount - 1) {
+        await Future.delayed(const Duration(milliseconds: 20));
+      }
+    }
+
+    // Fallback на cp.cloudflare.com, если основной хост заблокирован
+    if (downSamples.isEmpty && upSamples.isEmpty) {
       final fallbackRtt = await _fallbackProbe(client);
       if (fallbackRtt != null && fallbackRtt > 0) {
-        rawSamples.add(fallbackRtt);
+        downSamples.add(fallbackRtt);
       }
     }
 
-    if (rawSamples.isEmpty) {
+    if (downSamples.isEmpty && upSamples.isEmpty) {
       return null;
     }
 
-    // 1. Jitter calculation (Cloudflare algorithm / RFC 3550):
-    // Mean of absolute differences between consecutive measurements
-    double jitter = 0.0;
-    if (rawSamples.length > 1) {
-      double sumDiff = 0.0;
-      for (int i = 1; i < rawSamples.length; i++) {
-        sumDiff += (rawSamples[i] - rawSamples[i - 1]).abs();
-      }
-      jitter = sumDiff / (rawSamples.length - 1);
+    // Взаимный fallback, если одно из направлений было временно недоступно
+    final effectiveDown = downSamples.isNotEmpty ? downSamples : upSamples;
+    final effectiveUp = upSamples.isNotEmpty ? upSamples : effectiveDown;
+
+    int calcLatency(List<double> samples) {
+      if (samples.isEmpty) return 0;
+      final sorted = List<double>.from(samples)..sort();
+      final median = sorted[sorted.length ~/ 2];
+      return max(1, median.round());
     }
 
-    // 2. Latency calculation (Cloudflare algorithm):
-    // Median of samples to eliminate queuing outliers
-    final sorted = List<double>.from(rawSamples)..sort();
-    final medianLatency = sorted[sorted.length ~/ 2];
+    int calcJitter(List<double> samples) {
+      if (samples.length <= 1) return 0;
+      double sumDiff = 0.0;
+      for (int i = 1; i < samples.length; i++) {
+        sumDiff += (samples[i] - samples[i - 1]).abs();
+      }
+      final avg = sumDiff / (samples.length - 1);
+      // Если есть микро-разброс задержки (0.05-1.0 мс), отображаем 1 мс
+      if (avg > 0.05 && avg < 1.0) {
+        return 1;
+      }
+      return max(0, avg.round());
+    }
 
     final res = PingResult(
-      latencyMs: max(1, medianLatency.round()),
-      jitterMs: max(0, jitter.round()),
+      downLatencyMs: calcLatency(effectiveDown),
+      downJitterMs: calcJitter(effectiveDown),
+      upLatencyMs: calcLatency(effectiveUp),
+      upJitterMs: calcJitter(effectiveUp),
     );
     lastResult = res;
     return res;
   }
 
-  /// Backward-compatible single latency check.
+  /// Быстрый одиночный замер для обратной совместимости
   static Future<int> checkLatency() async {
-    final res = await measureLatencyAndJitter(probeCount: 3);
-    return res?.latencyMs ?? -1;
+    final res = await measureLatencyAndJitter(probeCount: 2);
+    return res?.downLatencyMs ?? -1;
   }
 
-  /// Extracts server processing time reported by Cloudflare in the Server-Timing header.
-  /// Matches cfGetServerTime from @cloudflare/speedtest:
-  /// First checks cfReqDur / cfRequestDuration, otherwise sums cfSpeed* entries.
-  static double _extractServerTime(String? serverTiming) {
-    if (serverTiming == null || serverTiming.isEmpty) return 0.0;
-    final re = RegExp(r'(?:^|,\s*)cfReq(?:uest)?Dur(?:ation)?;\s*dur=([0-9.]+)', caseSensitive: false)
-        .firstMatch(serverTiming);
-    if (re != null) {
-      final val = double.tryParse(re.group(1) ?? '0') ?? 0.0;
+  /// Парсинг времени обработки запроса на стороне серверов Cloudflare (Server-Timing)
+  static double _extractServerTime(List<String>? timingHeaders) {
+    if (timingHeaders == null || timingHeaders.isEmpty) return 0.0;
+    final combined = timingHeaders.join(', ');
+
+    // 1. Приоритет cfReqDur / cfRequestDuration
+    final reReq = RegExp(r'(?:^|,\s*)cfReq(?:uest)?Dur(?:ation)?;\s*dur=([0-9.]+)', caseSensitive: false)
+        .firstMatch(combined);
+    if (reReq != null) {
+      final val = double.tryParse(reReq.group(1) ?? '0') ?? 0.0;
       if (val > 0.01) return val;
     }
+
+    // 2. Сумма cfSpeed* фаз (cfSpeedEdge, cfSpeedWorker)
     double sum = 0.0;
     final matches = RegExp(r'(?:^|,\s*)cfSpeed[a-zA-Z]*;\s*dur=([0-9.]+)', caseSensitive: false)
-        .allMatches(serverTiming);
+        .allMatches(combined);
     for (final m in matches) {
       sum += double.tryParse(m.group(1) ?? '0') ?? 0.0;
     }
     return sum > 0.01 ? sum : 0.0;
   }
 
-  /// Performs a single 0-byte HTTP request against the Cloudflare Speed Test backend.
-  /// Deducts server-side execution time via Server-Timing header matching Cloudflare Speedtest.
-  static Future<double?> _singleCloudflareProbe(HttpClient client, {required bool isWarmup}) async {
+  /// Одиночный 0-байтный запрос к Cloudflare Speed Test
+  static Future<double?> _singleProbe(
+    HttpClient client, {
+    required String method,
+    required String url,
+    required bool isWarmup,
+  }) async {
     final sw = Stopwatch()..start();
     try {
-      final uri = Uri.parse('https://speed.cloudflare.com/__down?bytes=0');
-      final req = await client.getUrl(uri).timeout(const Duration(milliseconds: 2000));
+      final uri = Uri.parse(url);
+      final req = await (method == 'POST'
+              ? client.postUrl(uri)
+              : client.getUrl(uri))
+          .timeout(const Duration(milliseconds: 2000));
 
-      req.headers.set(HttpHeaders.userAgentHeader,
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36');
+      req.headers.set(HttpHeaders.userAgentHeader, _userAgent);
       req.headers.set(HttpHeaders.acceptHeader, '*/*');
       req.headers.set(HttpHeaders.cacheControlHeader, 'no-cache, no-store, must-revalidate');
       req.headers.set('Pragma', 'no-cache');
+      if (method == 'POST') {
+        req.headers.set(HttpHeaders.contentLengthHeader, '0');
+      }
 
       final res = await req.close().timeout(const Duration(milliseconds: 2000));
       await res.drain();
@@ -160,12 +225,11 @@ class PingService {
       }
 
       if (isWarmup) {
-        return null; // Discard connection initialization overhead
+        return null; // Прогрев сокета, значение отбрасывается
       }
 
       final elapsedMs = sw.elapsedMicroseconds / 1000.0;
-      final serverTiming = res.headers.value('server-timing') ?? res.headers.value('Server-Timing');
-      final serverTime = _extractServerTime(serverTiming);
+      final serverTime = _extractServerTime(res.headers['server-timing']);
 
       double ping = elapsedMs - serverTime;
       if (ping <= 1.0) {
@@ -178,13 +242,13 @@ class PingService {
     }
   }
 
-  /// Secondary fallback probe to Cloudflare edge generate_204 endpoint.
+  /// Запасной зонд к edge-точке cp.cloudflare.com/generate_204
   static Future<double?> _fallbackProbe(HttpClient client) async {
     final sw = Stopwatch()..start();
     try {
-      final uri = Uri.parse('https://cp.cloudflare.com/generate_204');
+      final uri = Uri.parse(_cfGen204Endpoint);
       final req = await client.getUrl(uri).timeout(const Duration(milliseconds: 2000));
-      req.headers.set(HttpHeaders.userAgentHeader, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+      req.headers.set(HttpHeaders.userAgentHeader, _userAgent);
       final res = await req.close().timeout(const Duration(milliseconds: 2000));
       await res.drain();
       sw.stop();

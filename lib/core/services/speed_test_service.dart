@@ -9,29 +9,45 @@ class SpeedTestProgress {
   final double progress; // 0.0 to 1.0
   final bool isRunning;
   final String statusText;
-  final int? latencyMs;
-  final int? jitterMs;
+  final int? downLatencyMs;
+  final int? downJitterMs;
+  final int? upLatencyMs;
+  final int? upJitterMs;
+
+  /// Обратная совместимость с кодом, ожидающим latencyMs / jitterMs
+  int? get latencyMs => downLatencyMs;
+  int? get jitterMs => downJitterMs;
 
   const SpeedTestProgress({
     this.currentMbps = 0.0,
     this.progress = 0.0,
     this.isRunning = false,
     this.statusText = '',
-    this.latencyMs,
-    this.jitterMs,
+    this.downLatencyMs,
+    this.downJitterMs,
+    this.upLatencyMs,
+    this.upJitterMs,
   });
 }
 
 class SpeedTestResult {
   final double downloadSpeedMbps;
-  final int latencyMs;
-  final int jitterMs;
+  final int downLatencyMs;
+  final int downJitterMs;
+  final int upLatencyMs;
+  final int upJitterMs;
   final DateTime timestamp;
+
+  /// Обратная совместимость
+  int get latencyMs => downLatencyMs;
+  int get jitterMs => downJitterMs;
 
   const SpeedTestResult({
     required this.downloadSpeedMbps,
-    required this.latencyMs,
-    this.jitterMs = 0,
+    required this.downLatencyMs,
+    this.downJitterMs = 0,
+    required this.upLatencyMs,
+    this.upJitterMs = 0,
     required this.timestamp,
   });
 
@@ -42,8 +58,8 @@ class SpeedTestResult {
 class SpeedTestService {
   static SpeedTestResult? lastResult;
 
-  /// Runs an active download speed test through the encrypted tunnel.
-  /// Measures latency, jitter and bandwidth throughput.
+  /// Выполняет активный тест скорости через зашифрованный туннель.
+  /// Калибрует задержку и джиттер для входящего и исходящего каналов.
   static Future<SpeedTestResult?> runTest({
     required Function(SpeedTestProgress) onProgress,
   }) async {
@@ -63,17 +79,21 @@ class SpeedTestService {
       statusText: 'Калибровка канала...',
     ));
 
-    // Phase 1: High-precision real-time Latency & Jitter measurement
+    // Фаза 1: Высокоточный замер RTT и Jitter для входящего и исходящего направлений
     final pingRes = await PingService.measureLatencyAndJitter(probeCount: 3);
-    final measuredLatency = pingRes?.latencyMs ?? 0;
-    final measuredJitter = pingRes?.jitterMs ?? 0;
+    final downLatency = pingRes?.downLatencyMs ?? 0;
+    final downJitter = pingRes?.downJitterMs ?? 0;
+    final upLatency = pingRes?.upLatencyMs ?? downLatency;
+    final upJitter = pingRes?.upJitterMs ?? downJitter;
 
     onProgress(SpeedTestProgress(
       isRunning: true,
       progress: 0.15,
       statusText: 'Тестирование входящей линии...',
-      latencyMs: measuredLatency > 0 ? measuredLatency : null,
-      jitterMs: measuredJitter > 0 ? measuredJitter : null,
+      downLatencyMs: downLatency > 0 ? downLatency : null,
+      downJitterMs: downJitter > 0 ? downJitter : null,
+      upLatencyMs: upLatency > 0 ? upLatency : null,
+      upJitterMs: upJitter > 0 ? upJitter : null,
     ));
 
     final testUrls = [
@@ -98,7 +118,8 @@ class SpeedTestService {
         }
 
         final responseLatency = sw.elapsedMilliseconds;
-        final finalLatency = measuredLatency > 0 ? measuredLatency : responseLatency;
+        final finalDownLatency = downLatency > 0 ? downLatency : responseLatency;
+        final finalUpLatency = upLatency > 0 ? upLatency : finalDownLatency;
         sw.reset();
         sw.start();
 
@@ -115,8 +136,10 @@ class SpeedTestService {
               currentMbps: currentMbps,
               progress: prog,
               statusText: '${currentMbps.toStringAsFixed(1)} Мбит/с',
-              latencyMs: finalLatency > 0 ? finalLatency : null,
-              jitterMs: measuredJitter > 0 ? measuredJitter : null,
+              downLatencyMs: finalDownLatency > 0 ? finalDownLatency : null,
+              downJitterMs: downJitter > 0 ? downJitter : null,
+              upLatencyMs: finalUpLatency > 0 ? finalUpLatency : null,
+              upJitterMs: upJitter > 0 ? upJitter : null,
             ));
           }
 
@@ -133,8 +156,10 @@ class SpeedTestService {
 
         final resObj = SpeedTestResult(
           downloadSpeedMbps: finalMbps,
-          latencyMs: finalLatency,
-          jitterMs: measuredJitter,
+          downLatencyMs: finalDownLatency,
+          downJitterMs: downJitter,
+          upLatencyMs: finalUpLatency,
+          upJitterMs: upJitter,
           timestamp: DateTime.now(),
         );
         lastResult = resObj;
@@ -144,8 +169,10 @@ class SpeedTestService {
           currentMbps: finalMbps,
           progress: 1.0,
           statusText: '${finalMbps.toStringAsFixed(1)} Мбит/с',
-          latencyMs: finalLatency,
-          jitterMs: measuredJitter,
+          downLatencyMs: finalDownLatency,
+          downJitterMs: downJitter,
+          upLatencyMs: finalUpLatency,
+          upJitterMs: upJitter,
         ));
 
         client.close();
@@ -158,8 +185,10 @@ class SpeedTestService {
         onProgress(SpeedTestProgress(
           isRunning: false,
           statusText: 'Ошибка замера: $e',
-          latencyMs: measuredLatency > 0 ? measuredLatency : null,
-          jitterMs: measuredJitter > 0 ? measuredJitter : null,
+          downLatencyMs: downLatency > 0 ? downLatency : null,
+          downJitterMs: downJitter > 0 ? downJitter : null,
+          upLatencyMs: upLatency > 0 ? upLatency : null,
+          upJitterMs: upJitter > 0 ? upJitter : null,
         ));
       }
     }

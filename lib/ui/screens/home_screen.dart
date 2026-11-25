@@ -33,8 +33,11 @@ class _HomeScreenState extends State<HomeScreen> {
   UserProfile _profile = UserProfile.empty();
   VpnStatus _status = VpnStatus.disconnected;
   TrafficStats _traffic = TrafficStats.empty();
-  int? _pingMs;
-  int? _jitterMs;
+  int? _downPingMs;
+  int? _downJitterMs;
+  int? _upPingMs;
+  int? _upJitterMs;
+  int? get _pingMs => _downPingMs;
   SpeedTestProgress? _speedTestProgress;
   SpeedTestResult? _lastSpeedTestResult;
   bool _isLoading = true;
@@ -69,8 +72,10 @@ class _HomeScreenState extends State<HomeScreen> {
         } else {
           _pingTimer?.cancel();
           setState(() {
-            _pingMs = null;
-            _jitterMs = null;
+            _downPingMs = null;
+            _downJitterMs = null;
+            _upPingMs = null;
+            _upJitterMs = null;
           });
         }
       }
@@ -131,8 +136,10 @@ class _HomeScreenState extends State<HomeScreen> {
       final res = await PingService.measureLatencyAndJitter(probeCount: 3);
       if (mounted && res != null) {
         setState(() {
-          _pingMs = res.latencyMs;
-          _jitterMs = res.jitterMs;
+          _downPingMs = res.downLatencyMs;
+          _downJitterMs = res.downJitterMs;
+          _upPingMs = res.upLatencyMs;
+          _upJitterMs = res.upJitterMs;
         });
       }
     } finally {
@@ -329,8 +336,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       TrafficCard(
                         stats: _traffic,
                         isConnected: isConnected,
-                        pingMs: _pingMs,
-                        jitterMs: _jitterMs,
+                        downPingMs: _downPingMs,
+                        downJitterMs: _downJitterMs,
+                        upPingMs: _upPingMs,
+                        upJitterMs: _upJitterMs,
                         speedTestProgress: _speedTestProgress,
                         lastSpeedTestResult: _lastSpeedTestResult,
                         onRunSpeedTest: _runSpeedTest,
