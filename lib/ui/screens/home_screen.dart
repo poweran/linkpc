@@ -62,6 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _statusSub = VpnService.statusStream.listen((status) {
       if (mounted) {
         setState(() => _status = status);
+        PingService.resetClient();
         if (status.isConnected) {
           _refreshPing();
           _startPingTimer();

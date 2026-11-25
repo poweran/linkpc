@@ -16,115 +16,181 @@ class PingResult {
   static const PingResult zero = PingResult(latencyMs: 0, jitterMs: 0);
 }
 
+/// High-Precision Network Latency and Jitter Engine matching speed.cloudflare.com:
+/// 1. Uses official Cloudflare Speed Test zero-byte probe: https://speed.cloudflare.com/__down?bytes=0
+/// 2. Uses persistent HTTP/1.1 Keep-Alive connections to isolate pure network Round-Trip Time (RTT).
+/// 3. Extracts server-side execution timing via Server-Timing header (cfReqDur / cfSpeedEdge / cfSpeedWorker).
+/// 4. Computes Median Latency (ignoring transient OS spikes) and Consecutive Difference Jitter (RFC 3550).
 class PingService {
-  static const String host = '188.120.249.117';
-  static const int port = 443;
-
   static PingResult? lastResult;
 
-  /// Fast, accurate network probe measuring true Round-Trip Time (Latency) and Jitter (RFC 3550).
-  /// Performs consecutive lightweight zero-byte probes to measure delay variance.
-  static Future<PingResult?> measureLatencyAndJitter({int probeCount = 3}) async {
-    final samples = <int>[];
+  static HttpClient? _persistentClient;
+  static bool? _lastConnectedState;
 
+  /// Resets the persistent HTTP client (e.g. when VPN tunnel toggles)
+  static void resetClient() {
+    _persistentClient?.close(force: true);
+    _persistentClient = null;
+    _lastConnectedState = null;
+  }
+
+  static HttpClient _getClient() {
+    final isConnected = VpnService.status.isConnected;
+    if (_persistentClient != null && _lastConnectedState == isConnected) {
+      return _persistentClient!;
+    }
+    _persistentClient?.close(force: true);
+    _lastConnectedState = isConnected;
+    _persistentClient = HttpClient()
+      ..idleTimeout = const Duration(seconds: 30)
+      ..connectionTimeout = const Duration(milliseconds: 2500)
+      ..badCertificateCallback = ((cert, host, port) => true);
+
+    // On desktop platforms with mixed proxy enabled, route via 127.0.0.1:2080
+    if ((Platform.isWindows || Platform.isMacOS || Platform.isLinux) && isConnected) {
+      _persistentClient!.findProxy = (uri) => 'PROXY 127.0.0.1:2080; DIRECT';
+    } else {
+      _persistentClient!.findProxy = null;
+    }
+
+    return _persistentClient!;
+  }
+
+  /// Measures Latency & Jitter exactly as speed.cloudflare.com does.
+  static Future<PingResult?> measureLatencyAndJitter({int probeCount = 5}) async {
+    final client = _getClient();
+    final rawSamples = <double>[];
+
+    // Warm-up probe: Establishes TCP 3-way handshake + TLS 1.3 session so subsequent probes measure pure RTT
+    await _singleCloudflareProbe(client, isWarmup: true);
+
+    // Consecutive measurements across the persistent connection
     for (int i = 0; i < probeCount; i++) {
-      final sample = await _singleProbe();
-      if (sample > 0) {
-        samples.add(sample);
+      final rtt = await _singleCloudflareProbe(client, isWarmup: false);
+      if (rtt != null && rtt > 0) {
+        rawSamples.add(rtt);
       }
       if (i < probeCount - 1) {
-        await Future.delayed(const Duration(milliseconds: 30));
+        await Future.delayed(const Duration(milliseconds: 25));
       }
     }
 
-    if (samples.isEmpty) {
+    // Fallback probe to cp.cloudflare.com if speed.cloudflare.com was blocked
+    if (rawSamples.isEmpty) {
+      final fallbackRtt = await _fallbackProbe(client);
+      if (fallbackRtt != null && fallbackRtt > 0) {
+        rawSamples.add(fallbackRtt);
+      }
+    }
+
+    if (rawSamples.isEmpty) {
       return null;
     }
 
-    // Minimum latency represents true physical RTT without transient queuing delay
-    final minLatency = samples.reduce(min);
-
-    // Jitter calculation: average absolute difference between consecutive packets
-    int jitter = 0;
-    if (samples.length > 1) {
-      int sumDiff = 0;
-      for (int i = 1; i < samples.length; i++) {
-        sumDiff += (samples[i] - samples[i - 1]).abs();
+    // 1. Jitter calculation (Cloudflare algorithm / RFC 3550):
+    // Mean of absolute differences between consecutive measurements
+    double jitter = 0.0;
+    if (rawSamples.length > 1) {
+      double sumDiff = 0.0;
+      for (int i = 1; i < rawSamples.length; i++) {
+        sumDiff += (rawSamples[i] - rawSamples[i - 1]).abs();
       }
-      jitter = (sumDiff / (samples.length - 1)).round();
+      jitter = sumDiff / (rawSamples.length - 1);
     }
 
-    final res = PingResult(latencyMs: minLatency, jitterMs: jitter);
+    // 2. Latency calculation (Cloudflare algorithm):
+    // Median of samples to eliminate queuing outliers
+    final sorted = List<double>.from(rawSamples)..sort();
+    final medianLatency = sorted[sorted.length ~/ 2];
+
+    final res = PingResult(
+      latencyMs: max(1, medianLatency.round()),
+      jitterMs: max(0, jitter.round()),
+    );
     lastResult = res;
     return res;
   }
 
   /// Backward-compatible single latency check.
   static Future<int> checkLatency() async {
-    final res = await measureLatencyAndJitter(probeCount: 2);
+    final res = await measureLatencyAndJitter(probeCount: 3);
     return res?.latencyMs ?? -1;
   }
 
-  static Future<int> _singleProbe() async {
+  /// Extracts server processing time reported by Cloudflare in the Server-Timing header.
+  /// Matches cfGetServerTime from @cloudflare/speedtest:
+  /// First checks cfReqDur / cfRequestDuration, otherwise sums cfSpeed* entries.
+  static double _extractServerTime(String? serverTiming) {
+    if (serverTiming == null || serverTiming.isEmpty) return 0.0;
+    final re = RegExp(r'(?:^|,\s*)cfReq(?:uest)?Dur(?:ation)?;\s*dur=([0-9.]+)', caseSensitive: false)
+        .firstMatch(serverTiming);
+    if (re != null) {
+      final val = double.tryParse(re.group(1) ?? '0') ?? 0.0;
+      if (val > 0.01) return val;
+    }
+    double sum = 0.0;
+    final matches = RegExp(r'(?:^|,\s*)cfSpeed[a-zA-Z]*;\s*dur=([0-9.]+)', caseSensitive: false)
+        .allMatches(serverTiming);
+    for (final m in matches) {
+      sum += double.tryParse(m.group(1) ?? '0') ?? 0.0;
+    }
+    return sum > 0.01 ? sum : 0.0;
+  }
+
+  /// Performs a single 0-byte HTTP request against the Cloudflare Speed Test backend.
+  /// Deducts server-side execution time via Server-Timing header matching Cloudflare Speedtest.
+  static Future<double?> _singleCloudflareProbe(HttpClient client, {required bool isWarmup}) async {
     final sw = Stopwatch()..start();
-
-    // Strategy 1: Fast HTTP generate_204 probe
     try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(milliseconds: 1200)
-        ..badCertificateCallback = ((X509Certificate cert, String host, int port) => true);
+      final uri = Uri.parse('https://speed.cloudflare.com/__down?bytes=0');
+      final req = await client.getUrl(uri).timeout(const Duration(milliseconds: 2000));
 
-      // On desktop platforms with mixed proxy enabled, route via 127.0.0.1:2080
-      if ((Platform.isWindows || Platform.isMacOS || Platform.isLinux) && VpnService.status.isConnected) {
-        client.findProxy = (uri) => 'PROXY 127.0.0.1:2080; DIRECT';
-      }
+      req.headers.set(HttpHeaders.userAgentHeader,
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36');
+      req.headers.set(HttpHeaders.acceptHeader, '*/*');
+      req.headers.set(HttpHeaders.cacheControlHeader, 'no-cache, no-store, must-revalidate');
+      req.headers.set('Pragma', 'no-cache');
 
-      final req = await client
-          .getUrl(Uri.parse('https://cp.cloudflare.com/generate_204'))
-          .timeout(const Duration(milliseconds: 1200));
-      final res = await req.close().timeout(const Duration(milliseconds: 1200));
+      final res = await req.close().timeout(const Duration(milliseconds: 2000));
       await res.drain();
       sw.stop();
-      client.close();
-      return sw.elapsedMilliseconds;
-    } catch (_) {}
 
-    // Strategy 2: Fast secondary Google connectivity probe
-    try {
-      sw.reset();
-      sw.start();
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(milliseconds: 1200)
-        ..badCertificateCallback = ((X509Certificate cert, String host, int port) => true);
-
-      if ((Platform.isWindows || Platform.isMacOS || Platform.isLinux) && VpnService.status.isConnected) {
-        client.findProxy = (uri) => 'PROXY 127.0.0.1:2080; DIRECT';
+      if (res.statusCode != 200) {
+        return null;
       }
 
-      final req = await client
-          .getUrl(Uri.parse('https://connectivitycheck.gstatic.com/generate_204'))
-          .timeout(const Duration(milliseconds: 1200));
-      final res = await req.close().timeout(const Duration(milliseconds: 1200));
-      await res.drain();
-      sw.stop();
-      client.close();
-      return sw.elapsedMilliseconds;
-    } catch (_) {}
+      if (isWarmup) {
+        return null; // Discard connection initialization overhead
+      }
 
-    // Strategy 3: Direct TCP socket connect to the gateway server
-    try {
-      sw.reset();
-      sw.start();
-      final socket = await Socket.connect(
-        host,
-        port,
-        timeout: const Duration(milliseconds: 1200),
-      );
-      sw.stop();
-      await socket.close();
-      return sw.elapsedMilliseconds;
+      final elapsedMs = sw.elapsedMicroseconds / 1000.0;
+      final serverTiming = res.headers.value('server-timing') ?? res.headers.value('Server-Timing');
+      final serverTime = _extractServerTime(serverTiming);
+
+      double ping = elapsedMs - serverTime;
+      if (ping <= 1.0) {
+        ping = max(1.0, elapsedMs - (serverTime > 0 && serverTime < elapsedMs ? serverTime : 0.0));
+      }
+
+      return ping;
     } catch (_) {
-      return -1;
+      return null;
+    }
+  }
+
+  /// Secondary fallback probe to Cloudflare edge generate_204 endpoint.
+  static Future<double?> _fallbackProbe(HttpClient client) async {
+    final sw = Stopwatch()..start();
+    try {
+      final uri = Uri.parse('https://cp.cloudflare.com/generate_204');
+      final req = await client.getUrl(uri).timeout(const Duration(milliseconds: 2000));
+      req.headers.set(HttpHeaders.userAgentHeader, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+      final res = await req.close().timeout(const Duration(milliseconds: 2000));
+      await res.drain();
+      sw.stop();
+      return res.statusCode == 204 ? sw.elapsedMicroseconds / 1000.0 : null;
+    } catch (_) {
+      return null;
     }
   }
 }

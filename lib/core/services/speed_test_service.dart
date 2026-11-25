@@ -49,6 +49,8 @@ class SpeedTestService {
   }) async {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 4)
+      ..userAgent =
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
       ..badCertificateCallback = ((X509Certificate cert, String host, int port) => true);
 
     if ((Platform.isWindows || Platform.isMacOS || Platform.isLinux) && VpnService.status.isConnected) {
@@ -87,6 +89,8 @@ class SpeedTestService {
 
       try {
         final req = await client.getUrl(Uri.parse(testUrl)).timeout(const Duration(seconds: 4));
+        req.headers.set(HttpHeaders.userAgentHeader,
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36');
         final res = await req.close().timeout(const Duration(seconds: 4));
 
         if (res.statusCode != 200 && res.statusCode != 206) {
