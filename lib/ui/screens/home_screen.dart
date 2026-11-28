@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../app.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/models/traffic_stats.dart';
@@ -29,7 +30,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with WidgetsBindingObserver, RouteAware {
   UserProfile _profile = UserProfile.empty();
   VpnStatus _status = VpnStatus.disconnected;
   TrafficStats _traffic = TrafficStats.empty();
@@ -51,10 +53,156 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _pingTimer;
   bool _isPingRunning = false;
 
+  // Measurement condition triggers:
+  // 1. Window is active (foreground, focused, not hidden or minimized)
+  bool _isWindowActive = true;
+  // 2. Route is active (HomeScreen is top-most route, not covered by other screens/dialogs)
+  bool _isRouteActive = true;
+  // 3. TrafficCard is currently visible in viewport (not scrolled out of view)
+  bool _isCardVisible = true;
+
+  final GlobalKey _trafficCardKey = GlobalKey();
+  final ScrollController _scrollController = ScrollController();
+
+  /// Замер разрешен исключительно когда туннель подключен, окно активно,
+  /// экран открыт и сам виджет с замером находится в видимой области экрана.
+  bool get _shouldMeasure =>
+      _status.isConnected && _isWindowActive && _isRouteActive && _isCardVisible;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _isWindowActive = (WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed) == AppLifecycleState.resumed;
     _initApp();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _checkCardVisibility();
+      }
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final modalRoute = ModalRoute.of(context);
+    if (modalRoute != null) {
+      LinkpcApp.routeObserver.subscribe(this, modalRoute);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final isActive = state == AppLifecycleState.resumed;
+    if (_isWindowActive != isActive) {
+      setState(() {
+        _isWindowActive = isActive;
+      });
+      _onMeasurementConditionsChanged();
+    }
+  }
+
+  @override
+  void didChangeMetrics() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _checkCardVisibility();
+      }
+    });
+  }
+
+  @override
+  void didPushNext() {
+    // Пользователь перешел на другой экран (Настройки, Логи, Импорт)
+    setState(() {
+      _isRouteActive = false;
+    });
+    _onMeasurementConditionsChanged();
+  }
+
+  @override
+  void didPopNext() {
+    // Пользователь вернулся на главный экран
+    setState(() {
+      _isRouteActive = true;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _checkCardVisibility();
+        _onMeasurementConditionsChanged();
+      }
+    });
+  }
+
+  void _checkCardVisibility() {
+    if (!mounted) return;
+
+    final modalRoute = ModalRoute.of(context);
+    if (modalRoute != null && !modalRoute.isCurrent) {
+      _updateCardVisibility(false);
+      return;
+    }
+
+    final cardCtx = _trafficCardKey.currentContext;
+    if (cardCtx == null) return;
+
+    final renderBox = cardCtx.findRenderObject();
+    if (renderBox is! RenderBox || !renderBox.hasSize || !renderBox.attached) {
+      return;
+    }
+
+    final cardSize = renderBox.size;
+    if (cardSize.width <= 0 || cardSize.height <= 0) {
+      _updateCardVisibility(false);
+      return;
+    }
+
+    final cardGlobalOffset = renderBox.localToGlobal(Offset.zero);
+    final cardRect = cardGlobalOffset & cardSize;
+
+    final mediaQuery = MediaQuery.maybeOf(context);
+    final screenSize = mediaQuery?.size;
+    if (screenSize == null) return;
+
+    final screenRect = Offset.zero & screenSize;
+    final intersection = cardRect.intersect(screenRect);
+
+    final isVisible = !intersection.isEmpty && intersection.height > 10 && intersection.width > 10;
+    _updateCardVisibility(isVisible);
+  }
+
+  void _updateCardVisibility(bool visible) {
+    if (_isCardVisible != visible) {
+      setState(() {
+        _isCardVisible = visible;
+      });
+      _onMeasurementConditionsChanged();
+    }
+  }
+
+  void _onMeasurementConditionsChanged() {
+    if (!mounted) return;
+
+    if (_shouldMeasure) {
+      if (_pingTimer == null || !_pingTimer!.isActive) {
+        _startPingTimer();
+      }
+      _refreshPing();
+    } else {
+      _stopPingTimer();
+      _cancelAndCloseConnections();
+    }
+  }
+
+  void _stopPingTimer() {
+    _pingTimer?.cancel();
+    _pingTimer = null;
+  }
+
+  void _cancelAndCloseConnections() {
+    _isPingRunning = false;
+    PingService.stopAndClose();
+    SpeedTestService.cancelTest();
   }
 
   Future<void> _initApp() async {
@@ -67,10 +215,10 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() => _status = status);
         PingService.resetClient();
         if (status.isConnected) {
-          _refreshPing();
-          _startPingTimer();
+          _onMeasurementConditionsChanged();
         } else {
-          _pingTimer?.cancel();
+          _stopPingTimer();
+          _cancelAndCloseConnections();
           setState(() {
             _downPingMs = null;
             _downJitterMs = null;
@@ -108,9 +256,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     await _loadProfile(token);
-    _refreshPing();
 
-    if (_status.isConnected) {
+    if (_shouldMeasure) {
+      _refreshPing();
       _startPingTimer();
     }
 
@@ -123,18 +271,21 @@ class _HomeScreenState extends State<HomeScreen> {
   void _startPingTimer() {
     _pingTimer?.cancel();
     _pingTimer = Timer.periodic(const Duration(seconds: 4), (_) {
-      if (mounted && _status.isConnected) {
+      if (mounted && _shouldMeasure) {
         _refreshPing();
+      } else {
+        _stopPingTimer();
+        _cancelAndCloseConnections();
       }
     });
   }
 
   Future<void> _refreshPing() async {
-    if (_isPingRunning) return;
+    if (_isPingRunning || !_shouldMeasure) return;
     _isPingRunning = true;
     try {
       final res = await PingService.measureLatencyAndJitter(probeCount: 3);
-      if (mounted && res != null) {
+      if (mounted && _shouldMeasure && res != null) {
         setState(() {
           _downPingMs = res.downLatencyMs;
           _downJitterMs = res.downJitterMs;
@@ -186,7 +337,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _runSpeedTest() async {
-    if (!_status.isConnected) return;
+    if (!_shouldMeasure) return;
     await SpeedTestService.runTest(
       onProgress: (progress) {
         if (mounted) {
@@ -244,11 +395,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    LinkpcApp.routeObserver.unsubscribe(this);
+    _scrollController.dispose();
     _statusSub?.cancel();
     _trafficSub?.cancel();
     _logsSub?.cancel();
     _logThrottleTimer?.cancel();
-    _pingTimer?.cancel();
+    _stopPingTimer();
+    _cancelAndCloseConnections();
     super.dispose();
   }
 
@@ -279,9 +434,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
               // Scrollable Main Content
               Expanded(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    _checkCardVisibility();
+                    return false;
+                  },
+                  child: SingleChildScrollView(
+                    controller: _scrollController,
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
                   child: Column(
                     children: [
                       const SizedBox(height: 12),
@@ -333,16 +494,20 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 24),
 
                       // Live Traffic Card
-                      TrafficCard(
-                        stats: _traffic,
-                        isConnected: isConnected,
-                        downPingMs: _downPingMs,
-                        downJitterMs: _downJitterMs,
-                        upPingMs: _upPingMs,
-                        upJitterMs: _upJitterMs,
-                        speedTestProgress: _speedTestProgress,
-                        lastSpeedTestResult: _lastSpeedTestResult,
-                        onRunSpeedTest: _runSpeedTest,
+                      TickerMode(
+                        enabled: _isWindowActive && _isRouteActive && _isCardVisible,
+                        child: TrafficCard(
+                          key: _trafficCardKey,
+                          stats: _traffic,
+                          isConnected: isConnected,
+                          downPingMs: _downPingMs,
+                          downJitterMs: _downJitterMs,
+                          upPingMs: _upPingMs,
+                          upJitterMs: _upJitterMs,
+                          speedTestProgress: _speedTestProgress,
+                          lastSpeedTestResult: _lastSpeedTestResult,
+                          onRunSpeedTest: _runSpeedTest,
+                        ),
                       ),
 
                       const SizedBox(height: 14),
@@ -360,6 +525,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
+            ),
             ],
           ),
         ),

@@ -397,14 +397,42 @@ class VpnService {
         }
       }
 
-      // Smart Mode: Direct routing for Russian domains
+      // Smart Mode: Direct routing for Russian domains, services, banks, games, and infrastructure
       if (routingMode == AppConstants.routeModeSmart) {
         bool hasRuRule = rules.any((r) => r is Map && r['outbound'] == 'direct');
         if (!hasRuRule) {
           final lastDnsIdx = rules.lastIndexWhere((r) => r is Map && (r['action'] == 'hijack-dns' || r['protocol'] == 'dns' || r['port'] == 53));
           final insertIdx = lastDnsIdx >= 0 ? lastDnsIdx + 1 : rules.length;
           rules.insert(insertIdx, {
-            "domain_suffix": [".ru", ".su", ".рф", ".xn--p1ai"],
+            "domain_suffix": [
+              ".ru", ".su", ".рф", ".xn--p1ai",
+              "vless.linkpc.net",
+              "gosuslugi.ru", "sberbank.ru", "sber.ru", "sberbank.com", "tbank.ru", "tinkoff.ru",
+              "vtb.ru", "alfabank.ru", "raiffeisen.ru", "gazprombank.ru", "open.ru", "psbank.ru",
+              "sovcombank.ru", "rshb.ru", "cbr.ru", "nalog.gov.ru", "nalog.ru", "mos.ru", "spb.ru",
+              "mir-pay.ru", "nspk.ru", "qiwi.com", "yoomoney.ru",
+              "vk.com", "vk.me", "vk.ru", "vkvideo.ru", "vkplay.ru", "ok.ru",
+              "mail.ru", "my.games", "rambler.ru",
+              "ya.ru", "yandex.ru", "yandex.net", "yandex.com", "dzen.ru", "kinopoisk.ru",
+              "rutube.ru", "smotrim.ru", "1tv.ru", "kion.ru", "premier.one", "ivi.ru", "okko.tv",
+              "avito.ru", "ozon.ru", "wildberries.ru", "aliexpress.ru", "cdek.ru", "pochta.ru",
+              "mts.ru", "megafon.ru", "beeline.ru", "t2.ru", "tele2.ru", "rostelecom.ru", "dom.ru", "yota.ru",
+              "steampowered.com", "steamcommunity.com", "steamgames.com", "steamusercontent.com",
+              "steamcontent.com", "steamstatic.com", "steam-chat.com", "steamserver.net",
+              "steamdeck.com", "valvesoftware.com", "valve.net", "s.team",
+              "steamcommunity-a.akamaihd.net", "steamcdn-a.akamaihd.net",
+              "epicgames.com", "unrealengine.com", "battle.net", "blizzard.com",
+              "lesta.ru", "tanki.su", "korabli.su", "ea.com", "origin.com", "riotgames.com",
+              "aifory.pro", "aifory.com", "aifory.io", "aifory.net"
+            ],
+            "outbound": "direct"
+          });
+          rules.insert(insertIdx + 1, {
+            "domain_keyword": [
+              "gosuslugi", "sberbank", "sber", "tinkoff", "tbank", "vtb", "alfabank",
+              "yandex", "vkontakte", "avito", "kinopoisk", "rutube", "wildberries", "ozon",
+              "steam", "valvesoftware", "lesta", "aifory"
+            ],
             "outbound": "direct"
           });
         }

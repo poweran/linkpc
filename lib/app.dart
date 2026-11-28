@@ -4,12 +4,15 @@ import 'core/constants/app_constants.dart';
 import 'ui/screens/home_screen.dart';
 
 class LinkpcApp extends StatelessWidget {
+  static final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
+
   const LinkpcApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: AppConstants.appName,
+      navigatorObservers: [routeObserver],
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
       darkTheme: ThemeData(

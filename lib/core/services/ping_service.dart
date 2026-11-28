@@ -54,12 +54,24 @@ class PingService {
 
   static HttpClient? _persistentClient;
   static bool? _lastConnectedState;
+  static int _activeSessionId = 0;
+  static bool _isStopped = false;
+
+  /// Принудительно останавливает любые сетевые замеры и немедленно разрывает TCP/TLS сокеты
+  static void stopAndClose() {
+    _isStopped = true;
+    _activeSessionId++;
+    try {
+      _persistentClient?.close(force: true);
+    } catch (_) {}
+    _persistentClient = null;
+    _lastConnectedState = null;
+  }
 
   /// Сброс HTTP-клиента при переключении состояния VPN
   static void resetClient() {
-    _persistentClient?.close(force: true);
-    _persistentClient = null;
-    _lastConnectedState = null;
+    stopAndClose();
+    _isStopped = false;
   }
 
   static HttpClient _getClient() {
@@ -67,10 +79,12 @@ class PingService {
     if (_persistentClient != null && _lastConnectedState == isConnected) {
       return _persistentClient!;
     }
-    _persistentClient?.close(force: true);
+    try {
+      _persistentClient?.close(force: true);
+    } catch (_) {}
     _lastConnectedState = isConnected;
     _persistentClient = HttpClient()
-      ..idleTimeout = const Duration(seconds: 30)
+      ..idleTimeout = const Duration(seconds: 15)
       ..connectionTimeout = const Duration(milliseconds: 2500)
       ..badCertificateCallback = ((cert, host, port) => true);
 
@@ -88,16 +102,21 @@ class PingService {
 
   /// Замер входящей и исходящей задержки и джиттера по алгоритму speed.cloudflare.com
   static Future<PingResult?> measureLatencyAndJitter({int probeCount = 3}) async {
+    _isStopped = false;
+    final sessionId = ++_activeSessionId;
     final client = _getClient();
     final downSamples = <double>[];
     final upSamples = <double>[];
 
     // --- 1. Downstream (Входящий канал: GET) ---
     // Прогревочный запрос: устраняет задержку первого TCP/TLS handshake
+    if (_isStopped || _activeSessionId != sessionId) return null;
     await _singleProbe(client, method: 'GET', url: _cfSpeedDownEndpoint, isWarmup: true);
 
     for (int i = 0; i < probeCount; i++) {
+      if (_isStopped || _activeSessionId != sessionId) return null;
       final rtt = await _singleProbe(client, method: 'GET', url: _cfSpeedDownEndpoint, isWarmup: false);
+      if (_isStopped || _activeSessionId != sessionId) return null;
       if (rtt != null && rtt > 0) {
         downSamples.add(rtt);
       }
@@ -106,11 +125,14 @@ class PingService {
       }
     }
 
+    if (_isStopped || _activeSessionId != sessionId) return null;
     // --- 2. Upstream (Исходящий канал: POST 0 байт) ---
     await _singleProbe(client, method: 'POST', url: _cfSpeedUpEndpoint, isWarmup: true);
 
     for (int i = 0; i < probeCount; i++) {
+      if (_isStopped || _activeSessionId != sessionId) return null;
       final rtt = await _singleProbe(client, method: 'POST', url: _cfSpeedUpEndpoint, isWarmup: false);
+      if (_isStopped || _activeSessionId != sessionId) return null;
       if (rtt != null && rtt > 0) {
         upSamples.add(rtt);
       }
@@ -120,13 +142,16 @@ class PingService {
     }
 
     // Fallback на cp.cloudflare.com, если основной хост заблокирован
+    if (_isStopped || _activeSessionId != sessionId) return null;
     if (downSamples.isEmpty && upSamples.isEmpty) {
       final fallbackRtt = await _fallbackProbe(client);
+      if (_isStopped || _activeSessionId != sessionId) return null;
       if (fallbackRtt != null && fallbackRtt > 0) {
         downSamples.add(fallbackRtt);
       }
     }
 
+    if (_isStopped || _activeSessionId != sessionId) return null;
     if (downSamples.isEmpty && upSamples.isEmpty) {
       return null;
     }
